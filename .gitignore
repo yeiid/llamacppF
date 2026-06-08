@@ -1,0 +1,26 @@
+# llamba.cpp source (cada PC lo clona con setup.sh)
+llama.cpp/
+
+# Binarios compilados (cada PC compila los suyos)
+bin/
+
+# Modelos GGUF (descargar aparte)
+models/*.gguf
+models/*.gguf*
+
+# Estado de ejecución (PIDs, logs)
+.state/
+
+# Configuración auto-generada
+cluster.conf
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
