@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Llama.cpp RPC Cluster Suite</title>
+    <!-- Google Fonts: Outfit & Fira Code -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Premium Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- MarkedJS for Markdown Parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
+    <!-- HighlightJS for Code Highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    <!-- Chart.js for Monitoring Charts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- SIDEBAR -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <i class="fa-solid fa-microchip glow-icon"></i>
+                    <span>LlamaCluster <span>Suite</span></span>
+                </div>
+            </div>
+
+            <!-- SERVER STATUS CARD -->
+            <div class="status-card glass">
+                <h3><i class="fa-solid fa-server"></i> Estado del Cluster</h3>
+                
+                <div class="status-item">
+                    <span class="label">Maestro (API):</span>
+                    <div class="status-indicator-wrapper">
+                        <span id="status-maestro-dot" class="status-dot offline"></span>
+                        <span id="status-maestro-text" class="status-text text-offline">Desconectado</span>
+                    </div>
+                </div>
+                
+                <div class="status-item">
+                    <span class="label">Worker Local:</span>
+                    <div class="status-indicator-wrapper">
+                        <span id="status-worker-dot" class="status-dot offline"></span>
+                        <span id="status-worker-text" class="status-text text-offline">Apagado</span>
+                    </div>
+                </div>
+
+                <div class="status-item">
+                    <span class="label">IP Local:</span>
+                    <span id="info-local-ip" class="value">Cargando...</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Puerto API:</span>
+                    <span id="info-api-port" class="value">8080</span>
+                </div>
+                
+                <div class="model-badge" id="info-active-model-container">
+                    <span class="label-model">Modelo Activo:</span>
+                    <div id="info-active-model" class="model-name-val">Ninguno cargado</div>
+                </div>
+            </div>
+
+            <!-- HARDWARE USAGE CARD -->
+            <div class="hardware-card glass">
+                <h3><i class="fa-solid fa-microchip"></i> Recursos del Servidor</h3>
+                
+                <div class="hw-item">
+                    <div class="hw-label-row">
+                        <span>CPU Sistema:</span>
+                        <span id="hw-cpu-pct">0%</span>
+                    </div>
+                    <div class="hw-bar-bg">
+                        <div id="hw-cpu-bar" class="hw-bar cpu" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="hw-item">
+                    <div class="hw-label-row">
+                        <span>RAM Sistema:</span>
+                        <span id="hw-mem-text">0 / 0 GB (0%)</span>
+                    </div>
+                    <div class="hw-bar-bg">
+                        <div id="hw-mem-bar" class="hw-bar mem" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="hw-process-details">
+                    <div class="hw-proc" id="hw-proc-llama">
+                        <span class="proc-name">Maestro (API):</span>
+                        <span class="proc-stats"><span id="hw-llama-cpu">0%</span> CPU | <span id="hw-llama-mem">0 MB</span> RAM</span>
+                    </div>
+                    <div class="hw-proc" id="hw-proc-rpc">
+                        <span class="proc-name">Worker Local:</span>
+                        <span class="proc-stats"><span id="hw-rpc-cpu">0%</span> CPU | <span id="hw-rpc-mem">0 MB</span> RAM</span>
+                    </div>
+                </div>
+
+                <div class="hw-extra-details">
+                    <div class="hw-extra-row">
+                        <span><i class="fa-solid fa-temperature-half"></i> Temperatura:</span>
+                        <span id="hw-temp" class="hw-extra-val">N/A</span>
+                    </div>
+                    <div class="hw-extra-row">
+                        <span><i class="fa-solid fa-hard-drive"></i> Disco:</span>
+                        <span id="hw-disk" class="hw-extra-val">N/A</span>
+                    </div>
+                    <div class="hw-extra-row">
+                        <span><i class="fa-solid fa-arrow-up"></i> <span id="hw-net-tx-label">TX:</span></span>
+                        <span id="hw-net-tx" class="hw-extra-val">0 KB/s</span>
+                    </div>
+                    <div class="hw-extra-row">
+                        <span><i class="fa-solid fa-arrow-down"></i> <span id="hw-net-rx-label">RX:</span></span>
+                        <span id="hw-net-rx" class="hw-extra-val">0 KB/s</span>
+                    </div>
+                    <div class="hw-extra-row">
+                        <span><i class="fa-solid fa-gauge-high"></i> Load Avg:</span>
+                        <span id="hw-load" class="hw-extra-val">0 / 0 / 0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- QUICK CONTROLS -->
+            <div class="controls-card glass">
+                <h3><i class="fa-solid fa-sliders"></i> Control Rápido</h3>
+                
+                <div class="control-row">
+                    <label for="select-server-model">Modelo a Cargar:</label>
+                    <select id="select-server-model" class="custom-select">
+                        <option value="">Cargando modelos...</option>
+                    </select>
+                </div>
+
+                <div class="btn-group-vertical">
+                    <button id="btn-start-server" class="btn btn-primary">
+                        <i class="fa-solid fa-play"></i> Iniciar Maestro
+                    </button>
+                    <button id="btn-start-worker" class="btn btn-secondary">
+                        <i class="fa-solid fa-network-wired"></i> Iniciar Worker Local
+                    </button>
+                    <button id="btn-stop-all" class="btn btn-danger">
+                        <i class="fa-solid fa-stop"></i> Detener Todo
+                    </button>
+                </div>
+
+                <div class="download-section">
+                    <button id="btn-open-models" class="btn btn-secondary btn-full">
+                        <i class="fa-solid fa-cloud-arrow-down"></i> Descargar Modelos
+                    </button>
+                    <div id="download-active-indicator" class="download-active hidden">
+                        <i class="fa-solid fa-spinner fa-spin"></i>
+                        <span id="download-active-text">Descargando...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DISCOVERED WORKERS -->
+            <div class="nodes-card glass">
+                <div class="card-header-flex">
+                    <h3><i class="fa-solid fa-circle-nodes"></i> Nodos RPC LAN</h3>
+                    <button id="btn-refresh-nodes" class="btn-icon" title="Escanear Red">
+                        <i class="fa-solid fa-arrows-rotate"></i>
+                    </button>
+                </div>
+                <div class="subnet-info" id="info-subnet">Escanear para detectar...</div>
+                <ul class="nodes-list" id="nodes-list-ul">
+                    <li class="empty-list">No se han detectado nodos.</li>
+                </ul>
+            </div>
+        </aside>
+
+        <!-- MAIN CONTENT -->
+        <main class="main-content">
+            <!-- TAB NAVIGATION -->
+            <nav class="tabs-nav glass">
+                <button class="tab-btn active" data-tab="tab-chat">
+                    <i class="fa-solid fa-comments"></i> Playground Chat
+                </button>
+                <button class="tab-btn" data-tab="tab-benchmark">
+                    <i class="fa-solid fa-gauge-high"></i> Benchmark de Inferencia
+                </button>
+                <button class="tab-btn" data-tab="tab-logs">
+                    <i class="fa-solid fa-terminal"></i> Diagnóstico y Logs
+                </button>
+                <button class="tab-btn" data-tab="tab-monitoring">
+                    <i class="fa-solid fa-chart-line"></i> Monitoreo
+                </button>
+                <button class="tab-btn" data-tab="tab-settings">
+                    <i class="fa-solid fa-gears"></i> Ajustes de Hardware
+                </button>
+            </nav>
+
+            <!-- TAB CONTENTS -->
+            <div class="tab-panes">
+                
+                <!-- PLAYGROUND CHAT TAB -->
+                <div id="tab-chat" class="tab-pane active">
+                    <div class="playground-layout">
+                        <!-- Chat Box -->
+                        <div class="chat-area glass">
+                            <div class="chat-header">
+                                <div class="chat-title-info">
+                                    <h3>Asistente de Inferencia</h3>
+                                    <span id="chat-model-indicator" class="model-indicator-tag">Desconectado</span>
+                                </div>
+                                <button id="btn-clear-chat" class="btn btn-icon-text" title="Limpiar Conversación">
+                                    <i class="fa-solid fa-trash-can"></i> Limpiar
+                                </button>
+                            </div>
+                            
+                            <div class="chat-messages" id="chat-messages-container">
+                                <div class="message system-msg">
+                                    <div class="avatar"><i class="fa-solid fa-robot"></i></div>
+                                    <div class="content">
+                                        <p>¡Hola! Soy tu asistente ejecutándose en tu cluster local. Selecciona un modelo a la izquierda y presiona "Iniciar Maestro" para comenzar a chatear.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="chat-input-area">
+                                <textarea id="chat-input-textarea" placeholder="Escribe tu mensaje aquí... (Ctrl+Enter para enviar)" disabled></textarea>
+                                <button id="btn-send-message" class="btn btn-primary btn-send" disabled>
+                                    <i class="fa-solid fa-paper-plane"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Chat Sidebar Parameters -->
+                        <div class="chat-sidebar-params glass">
+                            <h3>Parámetros</h3>
+                            
+                            <div class="param-group">
+                                <label for="select-persona">Persona / Plantilla:</label>
+                                <select id="select-persona" class="custom-select">
+                                    <option value="assistant">Asistente General</option>
+                                    <option value="coder">Programador Experto</option>
+                                    <option value="translator">Traductor Inglés-Español</option>
+                                    <option value="writer">Escritor Creativo</option>
+                                    <option value="concise">Resúmenes Precisos</option>
+                                </select>
+                            </div>
+
+                            <div class="param-group">
+                                <div class="label-val-row">
+                                    <label for="range-temperature">Temperatura:</label>
+                                    <span id="val-temperature">0.7</span>
+                                </div>
+                                <input type="range" id="range-temperature" min="0.1" max="2.0" step="0.1" value="0.7">
+                            </div>
+
+                            <div class="param-group">
+                                <div class="label-val-row">
+                                    <label for="range-max-tokens">Máximos Tokens:</label>
+                                    <span id="val-max-tokens">512</span>
+                                </div>
+                                <input type="range" id="range-max-tokens" min="64" max="2048" step="64" value="512">
+                            </div>
+
+                            <div class="param-group">
+                                <label for="textarea-system-prompt">Prompt de Sistema:</label>
+                                <textarea id="textarea-system-prompt" rows="6">Eres un asistente de inteligencia artificial útil, inteligente y amigable. Responde siempre de forma clara, precisa y en español, a menos que se te indique lo contrario.</textarea>
+                            </div>
+
+                            <div class="status-box-params" id="params-api-status-info">
+                                <i class="fa-solid fa-triangle-exclamation"></i>
+                                <span>Inicia el servidor maestro para habilitar la inferencia.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- BENCHMARK TAB -->
+                <div id="tab-benchmark" class="tab-pane">
+                    <div class="benchmark-container glass">
+                        <div class="benchmark-header">
+                            <h2>Prueba de Rendimiento (Benchmark)</h2>
+                            <p>Envía prompts de prueba directamente al cluster y mide la velocidad real de procesamiento de tokens en tiempo real.</p>
+                        </div>
+
+                        <div class="benchmark-setup">
+                            <div class="input-col">
+                                <label for="benchmark-prompt">Prompt de Prueba:</label>
+                                <textarea id="benchmark-prompt" rows="3">Escribe un poema de ciencia ficción sobre la computación distribuida en 3 estrofas.</textarea>
+                            </div>
+                            <div class="actions-col">
+                                <div class="param-group">
+                                    <label for="benchmark-tokens">Tokens Max:</label>
+                                    <input type="number" id="benchmark-tokens" value="256" min="32" max="1024" step="32" class="custom-input">
+                                </div>
+                                <button id="btn-run-benchmark" class="btn btn-primary btn-full">
+                                    <i class="fa-solid fa-play-circle"></i> Ejecutar Test
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- BENCHMARK RESULTS VISUALS -->
+                        <div class="benchmark-results-grid">
+                            <div class="metric-card glass">
+                                <div class="metric-icon purple"><i class="fa-solid fa-bolt"></i></div>
+                                <div class="metric-info">
+                                    <span class="metric-val" id="bench-val-tps">-</span>
+                                    <span class="metric-label">Tokens / Segundo</span>
+                                </div>
+                                <div class="metric-footer">Velocidad de Generación</div>
+                            </div>
+                            
+                            <div class="metric-card glass">
+                                <div class="metric-icon blue"><i class="fa-solid fa-hourglass-start"></i></div>
+                                <div class="metric-info">
+                                    <span class="metric-val" id="bench-val-first-token">-</span>
+                                    <span class="metric-label">ms Latencia</span>
+                                </div>
+                                <div class="metric-footer">Tiempo al primer token (Evaluación Prompt)</div>
+                            </div>
+
+                            <div class="metric-card glass">
+                                <div class="metric-icon green"><i class="fa-solid fa-clock"></i></div>
+                                <div class="metric-info">
+                                    <span class="metric-val" id="bench-val-total-time">-</span>
+                                    <span class="metric-label">Segundos Totales</span>
+                                </div>
+                                <div class="metric-footer">Duración de Inferencia</div>
+                            </div>
+
+                            <div class="metric-card glass">
+                                <div class="metric-icon orange"><i class="fa-solid fa-coins"></i></div>
+                                <div class="metric-info">
+                                    <span class="metric-val" id="bench-val-count">-</span>
+                                    <span class="metric-label">Tokens Generados</span>
+                                </div>
+                                <div class="metric-footer">Longitud de la respuesta</div>
+                            </div>
+                        </div>
+
+                        <div class="benchmark-output-preview glass">
+                            <h3>Vista Previa del Output de Inferencia</h3>
+                            <div class="output-preview-box" id="benchmark-output-preview-text">
+                                Esperando ejecución del test...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LOGS AND DIAG TAB -->
+                <div id="tab-logs" class="tab-pane">
+                    <div class="logs-layout-grid">
+                        <!-- Terminal Logs -->
+                        <div class="terminal-card glass">
+                            <div class="terminal-header">
+                                <div class="title-with-select">
+                                    <h3><i class="fa-solid fa-list-ul"></i> Consola de Logs</h3>
+                                    <select id="select-log-type" class="custom-select-small">
+                                        <option value="llama">Log de Llama-Server (Maestro)</option>
+                                        <option value="rpc">Log de RPC-Server (Worker)</option>
+                                    </select>
+                                </div>
+                                <div class="terminal-actions">
+                                    <button id="btn-refresh-logs" class="btn btn-sm btn-secondary" title="Actualizar logs">
+                                        <i class="fa-solid fa-arrows-rotate"></i>
+                                    </button>
+                                    <button id="btn-copy-logs" class="btn btn-sm btn-secondary" title="Copiar al portapapeles">
+                                        <i class="fa-solid fa-copy"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="terminal-body">
+                                <pre id="terminal-pre">Cargando logs del servidor...</pre>
+                            </div>
+                        </div>
+
+                        <!-- Network and CPU Diagnostic -->
+                        <div class="diagnostic-card glass">
+                            <div class="diagnostic-header">
+                                <h3><i class="fa-solid fa-stethoscope"></i> Diagnóstico de Red y Hardware</h3>
+                                <button id="btn-run-diag" class="btn btn-secondary btn-sm">
+                                    <i class="fa-solid fa-heart-pulse"></i> Ejecutar Diagnóstico
+                                </button>
+                            </div>
+                            <div class="diagnostic-body">
+                                <div id="diag-output-box" class="diag-output">
+                                    Haz click en "Ejecutar Diagnóstico" para escanear interfaces ethernet, medir la RAM, ver núcleos de CPU y listar pings activos en la red.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MONITORING TAB -->
+                <div id="tab-monitoring" class="tab-pane">
+                    <div class="monitoring-container">
+                        <!-- Alert Banner -->
+                        <div id="alert-banner" class="alert-banner hidden">
+                            <i class="fa-solid fa-triangle-exclamation"></i>
+                            <span id="alert-banner-text"></span>
+                            <button id="btn-dismiss-alert" class="btn-icon" title="Cerrar">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+
+                        <!-- Summary Cards -->
+                        <div class="monitoring-summary-grid">
+                            <div class="mon-summary-card glass">
+                                <div class="mon-summary-icon cpu-icon"><i class="fa-solid fa-microchip"></i></div>
+                                <div class="mon-summary-info">
+                                    <span class="mon-summary-val" id="mon-current-cpu">0%</span>
+                                    <span class="mon-summary-label">CPU Actual</span>
+                                </div>
+                            </div>
+                            <div class="mon-summary-card glass">
+                                <div class="mon-summary-icon ram-icon"><i class="fa-solid fa-memory"></i></div>
+                                <div class="mon-summary-info">
+                                    <span class="mon-summary-val" id="mon-current-ram">0%</span>
+                                    <span class="mon-summary-label">RAM Actual</span>
+                                </div>
+                            </div>
+                            <div class="mon-summary-card glass">
+                                <div class="mon-summary-icon temp-icon"><i class="fa-solid fa-temperature-half"></i></div>
+                                <div class="mon-summary-info">
+                                    <span class="mon-summary-val" id="mon-current-temp">N/A</span>
+                                    <span class="mon-summary-label">Temperatura</span>
+                                </div>
+                            </div>
+                            <div class="mon-summary-card glass">
+                                <div class="mon-summary-icon uptime-icon"><i class="fa-solid fa-clock"></i></div>
+                                <div class="mon-summary-info">
+                                    <span class="mon-summary-val" id="mon-current-uptime">0s</span>
+                                    <span class="mon-summary-label">Uptime Llama</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Charts Grid -->
+                        <div class="monitoring-charts-grid">
+                            <div class="chart-card glass">
+                                <div class="chart-card-header">
+                                    <h3><i class="fa-solid fa-microchip"></i> Uso de CPU (%)</h3>
+                                    <div class="chart-legend" id="legend-cpu"></div>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="chart-cpu"></canvas>
+                                </div>
+                            </div>
+
+                            <div class="chart-card glass">
+                                <div class="chart-card-header">
+                                    <h3><i class="fa-solid fa-memory"></i> Uso de RAM (%)</h3>
+                                    <div class="chart-legend" id="legend-ram"></div>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="chart-ram"></canvas>
+                                </div>
+                            </div>
+
+                            <div class="chart-card glass">
+                                <div class="chart-card-header">
+                                    <h3><i class="fa-solid fa-temperature-half"></i> Temperatura CPU (°C)</h3>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="chart-temp"></canvas>
+                                </div>
+                            </div>
+
+                            <div class="chart-card glass">
+                                <div class="chart-card-header">
+                                    <h3><i class="fa-solid fa-network-wired"></i> Red (KB/s)</h3>
+                                    <div class="chart-legend" id="legend-net"></div>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="chart-net"></canvas>
+                                </div>
+                            </div>
+
+                            <div class="chart-card glass">
+                                <div class="chart-card-header">
+                                    <h3><i class="fa-solid fa-hard-drive"></i> Disco I/O (KB/s)</h3>
+                                    <div class="chart-legend" id="legend-disk"></div>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="chart-disk-io"></canvas>
+                                </div>
+                            </div>
+
+                            <div class="chart-card glass">
+                                <div class="chart-card-header">
+                                    <h3><i class="fa-solid fa-gauge-high"></i> Load Average</h3>
+                                    <div class="chart-legend" id="legend-load"></div>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="chart-load"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Alert Settings -->
+                        <div class="alert-settings-card glass">
+                            <div class="alert-settings-header">
+                                <h3><i class="fa-solid fa-bell"></i> Configuración de Alertas</h3>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle-alerts" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="alert-thresholds-grid">
+                                <div class="threshold-group">
+                                    <label>CPU (%)</label>
+                                    <input type="number" id="threshold-cpu" min="10" max="100" value="90" class="custom-input">
+                                </div>
+                                <div class="threshold-group">
+                                    <label>RAM (%)</label>
+                                    <input type="number" id="threshold-ram" min="10" max="100" value="85" class="custom-input">
+                                </div>
+                                <div class="threshold-group">
+                                    <label>Temperatura (°C)</label>
+                                    <input type="number" id="threshold-temp" min="30" max="110" value="80" class="custom-input">
+                                </div>
+                                <div class="threshold-group">
+                                    <button id="btn-save-alerts" class="btn btn-primary">
+                                        <i class="fa-solid fa-floppy-disk"></i> Guardar Umbrales
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SETTINGS TAB -->
+                <div id="tab-settings" class="tab-pane">
+                    <div class="settings-container glass">
+                        <h2>Configuración Avanzada del Hardware y Red</h2>
+                        <p>Ajusta el rendimiento del cluster. Estos valores se guardan en <code>cluster.conf</code> y se aplicarán al reiniciar el servidor maestro.</p>
+                        
+                        <div class="settings-grid">
+                            <div class="settings-col">
+                                <h3>Inferencia y CPU</h3>
+                                
+                                <div class="form-group">
+                                    <label for="input-threads">Hilos de CPU (THREADS):</label>
+                                    <input type="number" id="input-threads" min="1" max="128" value="4">
+                                    <small>Recomendado: Número de núcleos físicos en tu CPU.</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="input-ctx-size">Tamaño de Contexto (CTX_SIZE):</label>
+                                    <input type="number" id="input-ctx-size" min="512" max="32768" step="512" value="4096">
+                                    <small>Tamaño máximo de historial + prompt en tokens.</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="input-batch-size">Tamaño de Lote (BATCH_SIZE):</label>
+                                    <input type="number" id="input-batch-size" min="8" max="2048" step="8" value="512">
+                                    <small>Tamaño del procesamiento de tokens por paso.</small>
+                                </div>
+                            </div>
+
+                            <div class="settings-col">
+                                <h3>Red y Puertos</h3>
+
+                                <div class="form-group">
+                                    <label for="input-llama-port">Puerto del Maestro (LLAMA_PORT):</label>
+                                    <input type="number" id="input-llama-port" min="1024" max="65535" value="8080">
+                                    <small>Puerto HTTP expuesto para la API del Maestro.</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="input-rpc-port">Puerto RPC (RPC_PORT):</label>
+                                    <input type="number" id="input-rpc-port" min="1024" max="65535" value="50052">
+                                    <small>Puerto en el que se comunican los workers RPC.</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="input-subnet">Subred Forzada (CLUSTER_SUBNET):</label>
+                                    <input type="text" id="input-subnet" placeholder="Auto-detectada (ej: 192.168.0)">
+                                    <small>Deja en blanco para auto-detectar según la IP local.</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-footer">
+                            <button id="btn-save-settings" class="btn btn-primary">
+                                <i class="fa-solid fa-floppy-disk"></i> Guardar Ajustes del Cluster
+                            </button>
+                            <span id="settings-status-msg" class="status-msg"></span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- MODELS BROWSER MODAL -->
+    <div id="modal-models" class="modal hidden">
+        <div class="modal-overlay"></div>
+        <div class="modal-content glass">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-cloud-arrow-down"></i> Descargar Modelos</h2>
+                <button id="btn-close-models" class="btn-icon modal-close-btn">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="models-ram-info">
+                    <i class="fa-solid fa-memory"></i>
+                    <span>Tu sistema tiene <strong id="modal-ram-info">--</strong> de RAM disponible</span>
+                </div>
+                <div class="models-filter-bar">
+                    <button class="filter-btn active" data-filter="all">Todos</button>
+                    <button class="filter-btn" data-filter="coding"><i class="fa-solid fa-code"></i> Coding</button>
+                    <button class="filter-btn" data-filter="lightweight"><i class="fa-solid fa-feather"></i> Ligeros</button>
+                    <button class="filter-btn" data-filter="premium"><i class="fa-solid fa-gem"></i> Premium</button>
+                </div>
+                <div id="models-catalog-list" class="models-catalog-grid">
+                    Cargando catálogo...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- DELETE MODEL CONFIRM MODAL -->
+    <div id="modal-confirm-delete" class="modal hidden">
+        <div class="modal-overlay"></div>
+        <div class="modal-content glass modal-small">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-trash"></i> Eliminar Modelo</h2>
+                <button id="btn-close-confirm-delete" class="btn-icon modal-close-btn">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>¿Seguro que deseas eliminar <strong id="delete-model-name"></strong>?</p>
+                <p class="text-dim">Esta acción no se puede deshacer.</p>
+                <div class="modal-actions">
+                    <button id="btn-cancel-delete" class="btn btn-secondary">Cancelar</button>
+                    <button id="btn-confirm-delete" class="btn btn-danger">
+                        <i class="fa-solid fa-trash"></i> Eliminar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+</body>
+</html>

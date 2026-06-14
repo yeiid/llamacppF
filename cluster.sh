@@ -126,6 +126,29 @@ select_model() {
         exit 1
     fi
 
+    # Si la variable MODEL ya está seteada, verificar si coincide con algún modelo
+    if [ -n "${MODEL:-}" ]; then
+        if [ -f "$MODEL" ]; then
+            SELECTED_MODEL="$MODEL"
+            ok "Modelo (var MODEL): $(basename "$SELECTED_MODEL")"
+            return 0
+        elif [ -f "$MODEL_DIR/$MODEL" ]; then
+            SELECTED_MODEL="$MODEL_DIR/$MODEL"
+            ok "Modelo (var MODEL): $(basename "$SELECTED_MODEL")"
+            return 0
+        else
+            # Búsqueda por coincidencia parcial en nombre
+            for m in "${models[@]}"; do
+                if [[ "$(basename "$m")" == *"$MODEL"* ]]; then
+                    SELECTED_MODEL="$m"
+                    ok "Modelo (var MODEL coincidencia): $(basename "$SELECTED_MODEL")"
+                    return 0
+                fi
+            done
+        fi
+        warn "Modelo '$MODEL' no encontrado. Procediendo a selección manual."
+    fi
+
     header "MODELOS"
     local i=1
     for m in "${models[@]}"; do
