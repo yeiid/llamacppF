@@ -40,13 +40,14 @@ cmd_start() {
     mkdir -p "$(dirname "$PID_FILE")"
     
     info "Iniciando Dashboard Suite en puerto $PORT..."
-    nohup python3 "$SCRIPT_DIR/dashboard.py" > "$LOG_FILE" 2>&1 &
-    echo $! > "$PID_FILE"
+    command -v termux-wake-lock &>/dev/null && termux-wake-lock 2>/dev/null || true
+    nohup python3 "$SCRIPT_DIR/dashboard.py" </dev/null > "$LOG_FILE" 2>&1 &
+    0echo $! > "$PID_FILE"
     
     sleep 1.5
     if is_running; then
         local my_ip
-        my_ip=$(hostname -I 2>/dev/null | awk '{print $1}') || my_ip="127.0.0.1"
+        my_ip=$(python3 -c "import cluster_core; print(cluster_core.get_local_ip_and_subnet()[0])" 2>/dev/null) || my_ip="127.0.0.1"
         ok "Dashboard iniciado con éxito!"
         echo ""
         echo -e "  ${BOLD}URL Local:${NC}   ${GREEN}http://localhost:$PORT${NC}"

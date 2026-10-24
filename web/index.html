@@ -181,8 +181,14 @@
                 <button class="tab-btn active" data-tab="tab-chat">
                     <i class="fa-solid fa-comments"></i> Playground Chat
                 </button>
+                <button class="tab-btn" data-tab="tab-code">
+                    <i class="fa-solid fa-code"></i> Code Studio <span id="code-count-badge" class="nav-pill-badge">0</span>
+                </button>
+                <button class="tab-btn" data-tab="tab-tools">
+                    <i class="fa-solid fa-screwdriver-wrench"></i> Suite llama.cpp
+                </button>
                 <button class="tab-btn" data-tab="tab-benchmark">
-                    <i class="fa-solid fa-gauge-high"></i> Benchmark de Inferencia
+                    <i class="fa-solid fa-gauge-high"></i> Benchmark
                 </button>
                 <button class="tab-btn" data-tab="tab-logs">
                     <i class="fa-solid fa-terminal"></i> Diagnóstico y Logs
@@ -191,8 +197,11 @@
                     <i class="fa-solid fa-chart-line"></i> Monitoreo
                 </button>
                 <button class="tab-btn" data-tab="tab-settings">
-                    <i class="fa-solid fa-gears"></i> Ajustes de Hardware
+                    <i class="fa-solid fa-gears"></i> Ajustes
                 </button>
+                <a id="link-native-webui" href="http://127.0.0.1:8080" target="_blank" class="tab-btn tab-ext-link" title="Abrir la interfaz nativa integrada en llama-server (:8080)">
+                    <i class="fa-solid fa-arrow-up-right-from-square"></i> UI Nativa :8080
+                </a>
             </nav>
 
             <!-- TAB CONTENTS -->
@@ -207,10 +216,24 @@
                                 <div class="chat-title-info">
                                     <h3>Asistente de Inferencia</h3>
                                     <span id="chat-model-indicator" class="model-indicator-tag">Desconectado</span>
+                                    <span id="chat-live-speed-badge" class="speed-pill-badge hidden" title="Velocidad de generación de tokens en tiempo real">
+                                        <i class="fa-solid fa-bolt"></i> <span id="chat-live-tps-val">--</span> t/s
+                                    </span>
                                 </div>
-                                <button id="btn-clear-chat" class="btn btn-icon-text" title="Limpiar Conversación">
-                                    <i class="fa-solid fa-trash-can"></i> Limpiar
-                                </button>
+                                <div class="chat-header-actions">
+                                    <select id="select-chat-model" class="custom-select-small" title="Seleccionar modelo descargado">
+                                        <option value="">Cargando modelos...</option>
+                                    </select>
+                                    <button id="btn-chat-load-model" class="btn btn-sm btn-primary" title="Cargar / Cambiar al modelo seleccionado">
+                                        <i class="fa-solid fa-play"></i> Cargar Modelo
+                                    </button>
+                                    <button id="btn-open-last-code" class="btn btn-icon-text" title="Abrir código en Code Studio">
+                                        <i class="fa-solid fa-code"></i> Ver Código
+                                    </button>
+                                    <button id="btn-clear-chat" class="btn btn-icon-text" title="Limpiar Conversación">
+                                        <i class="fa-solid fa-trash-can"></i> Limpiar
+                                    </button>
+                                </div>
                             </div>
                             
                             <div class="chat-messages" id="chat-messages-container">
@@ -223,8 +246,11 @@
                             </div>
                             
                             <div class="chat-input-area">
-                                <textarea id="chat-input-textarea" placeholder="Escribe tu mensaje aquí... (Ctrl+Enter para enviar)" disabled></textarea>
-                                <button id="btn-send-message" class="btn btn-primary btn-send" disabled>
+                                <textarea id="chat-input-textarea" placeholder="Escribe tu mensaje aquí... (Enter para enviar, Shift+Enter nueva línea)" disabled></textarea>
+                                <button id="btn-stop-generation" class="btn btn-danger btn-send hidden" title="Detener generación">
+                                    <i class="fa-solid fa-stop"></i>
+                                </button>
+                                <button id="btn-send-message" class="btn btn-primary btn-send" disabled title="Enviar mensaje">
                                     <i class="fa-solid fa-paper-plane"></i>
                                 </button>
                             </div>
@@ -238,7 +264,8 @@
                                 <label for="select-persona">Persona / Plantilla:</label>
                                 <select id="select-persona" class="custom-select">
                                     <option value="assistant">Asistente General</option>
-                                    <option value="coder">Programador Experto</option>
+                                    <option value="coder">Programador Experto (Code Studio)</option>
+                                    <option value="hermes">Hermes Agente Orquestador (Tools & JSON)</option>
                                     <option value="translator">Traductor Inglés-Español</option>
                                     <option value="writer">Escritor Creativo</option>
                                     <option value="concise">Resúmenes Precisos</option>
@@ -270,6 +297,239 @@
                                 <i class="fa-solid fa-triangle-exclamation"></i>
                                 <span>Inicia el servidor maestro para habilitar la inferencia.</span>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CODE STUDIO / SNIPPETS MANAGER TAB -->
+                <div id="tab-code" class="tab-pane">
+                    <div class="code-studio-layout">
+                        <!-- Left Sidebar: Extracted Chat Snippets + Saved Workspace Files -->
+                        <div class="code-sidebar glass">
+                            <div class="code-sidebar-section">
+                                <div class="code-sidebar-header">
+                                    <h3><i class="fa-solid fa-wand-magic-sparkles"></i> Generado en Chat</h3>
+                                    <button id="btn-new-snippet" class="btn btn-sm btn-secondary" title="Nuevo archivo vacío">
+                                        <i class="fa-solid fa-plus"></i> Nuevo
+                                    </button>
+                                </div>
+                                <div id="session-snippets-list" class="snippets-list">
+                                    <div class="empty-snippets">Los bloques de código generados en el chat aparecerán aquí automáticamente.</div>
+                                </div>
+                            </div>
+
+                            <div class="code-sidebar-section saved-section">
+                                <div class="code-sidebar-header">
+                                    <h3><i class="fa-solid fa-folder-open"></i> Guardados (workspace_code/)</h3>
+                                    <button id="btn-refresh-saved-snippets" class="btn-icon" title="Recargar carpeta">
+                                        <i class="fa-solid fa-arrows-rotate"></i>
+                                    </button>
+                                </div>
+                                <div id="saved-snippets-list" class="snippets-list">
+                                    <div class="empty-snippets">Cargando archivos...</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Area: Editor / Viewer / Actions / Live Preview -->
+                        <div class="code-main glass">
+                            <div class="code-toolbar">
+                                <div class="code-file-inputs">
+                                    <i class="fa-solid fa-file-code glow-icon"></i>
+                                    <input type="text" id="code-filename" class="custom-input code-filename-input" value="snippet.py" placeholder="nombre_archivo.ext">
+                                    <select id="code-lang" class="custom-select-small">
+                                        <option value="python">Python (.py)</option>
+                                        <option value="javascript">JavaScript (.js)</option>
+                                        <option value="html">HTML (.html)</option>
+                                        <option value="css">CSS (.css)</option>
+                                        <option value="bash">Bash / Shell (.sh)</option>
+                                        <option value="cpp">C / C++ (.cpp)</option>
+                                        <option value="json">JSON (.json)</option>
+                                        <option value="sql">SQL (.sql)</option>
+                                        <option value="markdown">Markdown (.md)</option>
+                                    </select>
+                                </div>
+                                <div class="code-actions-bar">
+                                    <button id="btn-code-copy" class="btn btn-sm btn-primary" title="Copiar todo el código al portapapeles">
+                                        <i class="fa-solid fa-copy"></i> Copiar Breve
+                                    </button>
+                                    <button id="btn-code-save" class="btn btn-sm btn-secondary" title="Guardar en workspace_code/">
+                                        <i class="fa-solid fa-floppy-disk"></i> Guardar en Disco
+                                    </button>
+                                    <button id="btn-code-download" class="btn btn-sm btn-secondary" title="Descargar archivo a tu dispositivo">
+                                        <i class="fa-solid fa-download"></i> Descargar
+                                    </button>
+                                    <button id="btn-code-preview-toggle" class="btn btn-sm btn-secondary" title="Alternar Vista Previa Web (HTML/JS/CSS)">
+                                        <i class="fa-solid fa-eye"></i> Preview Web
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="code-workspace-split" id="code-workspace-split">
+                                <div class="code-editor-pane">
+                                    <div class="code-editor-tabs">
+                                        <button id="btn-view-mode-highlight" class="code-subtab active">
+                                            <i class="fa-solid fa-highlighter"></i> Vista Coloreada
+                                        </button>
+                                        <button id="btn-view-mode-edit" class="code-subtab">
+                                            <i class="fa-solid fa-pen-to-square"></i> Editor Directo
+                                        </button>
+                                        <span id="code-stats-info" class="code-stats-info">0 líneas | 0 bytes</span>
+                                    </div>
+                                    <div id="code-highlighted-container" class="code-highlighted-container">
+                                        <pre><code id="code-highlighted-view" class="hljs language-python"># Selecciona o genera código en el Chat para visualizarlo, editarlo o copiarlo con 1 clic.</code></pre>
+                                    </div>
+                                    <textarea id="code-editor-textarea" class="code-editor-textarea hidden" spellcheck="false" placeholder="Escribe o pega tu código aquí..."></textarea>
+                                </div>
+
+                                <div id="code-preview-pane" class="code-preview-pane hidden">
+                                    <div class="code-preview-header">
+                                        <span><i class="fa-solid fa-globe"></i> Vista Previa Interactiva (Sandbox HTML/CSS/JS)</span>
+                                        <button id="btn-refresh-preview" class="btn btn-sm btn-secondary">
+                                            <i class="fa-solid fa-rotate-right"></i> Ejecutar
+                                        </button>
+                                    </div>
+                                    <iframe id="code-live-iframe" class="code-live-iframe" sandbox="allow-scripts"></iframe>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LLAMA.CPP COMPLETE TOOLS SUITE TAB -->
+                <div id="tab-tools" class="tab-pane">
+                    <div class="tools-suite-container">
+                        <div class="tools-header glass">
+                            <div>
+                                <h2><i class="fa-solid fa-screwdriver-wrench"></i> Suite de Herramientas Nativas <code>llama.cpp</code></h2>
+                                <p>Acceso directo a los <strong><span id="tools-total-count">47</span> binarios compilados</strong> en <code>bin/</code>: tokenización, benchmark C++ puro multi-hilo, cuantización GGUF, cálculo de VRAM/RAM, slots del servidor y consola universal.</p>
+                            </div>
+                            <div class="tools-model-selector">
+                                <label for="select-tools-model">Modelo Objetivo:</label>
+                                <select id="select-tools-model" class="custom-select"></select>
+                            </div>
+                        </div>
+
+                        <div class="tools-grid">
+                            <!-- 1. NATIVE MULTI-THREAD BENCHMARK (llama-bench) -->
+                            <div class="tool-card glass">
+                                <div class="tool-card-header">
+                                    <h3><i class="fa-solid fa-gauge-Simple-high"></i> 1. Benchmark C++ Puro (<code>llama-bench</code>)</h3>
+                                    <span class="tool-tag">Sin Overhead HTTP</span>
+                                </div>
+                                <p class="tool-desc">Mide la velocidad exacta del motor C++ probando distintos números de hilos (<code>-t</code>) para encontrar el punto óptimo real de tu CPU (evitando cuellos de botella por HyperThreading).</p>
+                                <div class="tool-form-row">
+                                    <div class="tool-field">
+                                        <label>Hilos a comparar (ej. 1,2,4):</label>
+                                        <input type="text" id="tool-bench-threads" class="custom-input" value="1,2,4">
+                                    </div>
+                                    <div class="tool-field">
+                                        <label>Prompt Tokens (pp):</label>
+                                        <input type="number" id="tool-bench-pp" class="custom-input" value="128" min="16" max="2048">
+                                    </div>
+                                    <div class="tool-field">
+                                        <label>Gen Tokens (tg):</label>
+                                        <input type="number" id="tool-bench-tg" class="custom-input" value="64" min="16" max="512">
+                                    </div>
+                                    <button id="btn-run-native-bench" class="btn btn-primary">
+                                        <i class="fa-solid fa-bolt"></i> Medir C++
+                                    </button>
+                                </div>
+                                <div id="native-bench-results" class="tool-output-box">
+                                    Haz clic en "Medir C++" para comparar la velocidad de generación (t/s) según el número de hilos.
+                                </div>
+                            </div>
+
+                            <!-- 2. INTERACTIVE TOKENIZER (llama-tokenize) -->
+                            <div class="tool-card glass">
+                                <div class="tool-card-header">
+                                    <h3><i class="fa-solid fa-puzzle-piece"></i> 2. Tokenizador Interactivo (<code>llama-tokenize</code>)</h3>
+                                    <span id="tokenizer-stats-badge" class="tool-tag">0 tokens</span>
+                                </div>
+                                <p class="tool-desc">Inspecciona cómo el vocabulario del modelo GGUF divide tu texto o código en IDs de tokens reales.</p>
+                                <div class="tool-form-row">
+                                    <textarea id="tool-tokenize-input" class="custom-input" rows="2" placeholder="Escribe texto o código para tokenizar...">def fibonacci(n): return n if n <= 1 else fibonacci(n-1) + fibonacci(n-2)</textarea>
+                                    <button id="btn-run-tokenize" class="btn btn-primary">
+                                        <i class="fa-solid fa-magnifying-glass-chart"></i> Tokenizar
+                                    </button>
+                                </div>
+                                <div id="tokenize-chips-output" class="tokenize-chips-box">
+                                    Presiona "Tokenizar" para ver cada token y su ID numérico.
+                                </div>
+                            </div>
+
+                            <!-- 3. GGUF INSPECTOR, FIT-PARAMS & LIVE SLOTS -->
+                            <div class="tool-card glass">
+                                <div class="tool-card-header">
+                                    <h3><i class="fa-solid fa-microscope"></i> 3. Inspector GGUF, Fit-Params y Slots</h3>
+                                    <span class="tool-tag">Diagnóstico</span>
+                                </div>
+                                <p class="tool-desc">Calcula los parámetros óptimos para tu memoria RAM (<code>llama-fit-params</code>), verifica la integridad criptográfica de los tensores (<code>llama-gguf-hash</code>) o inspecciona los slots activos del servidor.</p>
+                                <div class="tool-btn-row">
+                                    <button id="btn-tool-fit-params" class="btn btn-secondary btn-sm">
+                                        <i class="fa-solid fa-sliders"></i> Calcular Fit-Params
+                                    </button>
+                                    <button id="btn-tool-gguf-info" class="btn btn-secondary btn-sm">
+                                        <i class="fa-solid fa-fingerprint"></i> Hash y Tensores GGUF
+                                    </button>
+                                    <button id="btn-tool-live-slots" class="btn btn-secondary btn-sm">
+                                        <i class="fa-solid fa-layer-group"></i> Ver Slots / KV Cache
+                                    </button>
+                                </div>
+                                <pre id="tool-inspector-output" class="tool-pre-output">Selecciona una herramienta de inspección arriba...</pre>
+                            </div>
+
+                            <!-- 4. MODEL QUANTIZER (llama-quantize) -->
+                            <div class="tool-card glass">
+                                <div class="tool-card-header">
+                                    <h3><i class="fa-solid fa-compress"></i> 4. Cuantizador GGUF (<code>llama-quantize</code>)</h3>
+                                    <span class="tool-tag">Compresión</span>
+                                </div>
+                                <p class="tool-desc">Comprime o recuantiza un modelo GGUF local para que ocupe menos RAM y genere tokens más rápido en CPU o Android Termux.</p>
+                                <div class="tool-form-row">
+                                    <div class="tool-field" style="flex:1">
+                                        <label>Tipo de Cuantización:</label>
+                                        <select id="tool-quant-type" class="custom-select">
+                                            <option value="Q4_K_M">Q4_K_M (Equilibrio ideal velocidad/calidad)</option>
+                                            <option value="Q4_0">Q4_0 (Rápido en ARM / CPU antigua)</option>
+                                            <option value="Q5_K_M">Q5_K_M (Alta calidad)</option>
+                                            <option value="Q8_0">Q8_0 (Casi sin pérdida)</option>
+                                            <option value="IQ4_XS">IQ4_XS (Ultra compacto)</option>
+                                            <option value="Q2_K">Q2_K (Compresión extrema)</option>
+                                        </select>
+                                    </div>
+                                    <button id="btn-run-quantize" class="btn btn-primary">
+                                        <i class="fa-solid fa-gears"></i> Cuantizar Modelo
+                                    </button>
+                                </div>
+                                <pre id="tool-quantize-output" class="tool-pre-output">El modelo cuantizado se guardará automáticamente en la carpeta models/.</pre>
+                            </div>
+                        </div>
+
+                        <!-- 5. UNIVERSAL 47-TOOL RUNNER -->
+                        <div class="tool-card glass tool-universal-card">
+                            <div class="tool-card-header">
+                                <h3><i class="fa-solid fa-terminal"></i> 5. Consola Universal de Binarios <code>llama.cpp</code> (47 Herramientas)</h3>
+                                <span class="tool-tag">CLI Directo</span>
+                            </div>
+                            <p class="tool-desc">Ejecuta cualquiera de las herramientas compiladas en <code>bin/</code> (ej. <code>llama-perplexity</code>, <code>llama-gguf-split</code>, <code>llama-imatrix</code>, <code>llama-lookup</code>, <code>llama-cli</code>, <code>llama-cvector-generator</code>, etc.).</p>
+                            <div class="tool-form-row">
+                                <div class="tool-field" style="min-width: 240px;">
+                                    <label>Binario en <code>bin/</code>:</label>
+                                    <select id="select-universal-tool" class="custom-select"></select>
+                                </div>
+                                <div class="tool-field" style="flex: 1;">
+                                    <label>Argumentos CLI:</label>
+                                    <input type="text" id="input-universal-args" class="custom-input" value="--help" placeholder="Ej: --help o -m models/Qwen2.5-Coder-0.5B-Instruct-Q4_K_M.gguf -p 'Hola'">
+                                </div>
+                                <button id="btn-universal-help" class="btn btn-secondary" title="Ver ayuda --help del binario">
+                                    <i class="fa-solid fa-circle-question"></i> --help
+                                </button>
+                                <button id="btn-universal-run" class="btn btn-primary">
+                                    <i class="fa-solid fa-play"></i> Ejecutar
+                                </button>
+                            </div>
+                            <pre id="universal-tool-output" class="tool-pre-output tool-pre-large">Selecciona un binario y presiona "Ejecutar" o "--help" para inspeccionar sus opciones.</pre>
                         </div>
                     </div>
                 </div>
@@ -532,11 +792,11 @@
                 <div id="tab-settings" class="tab-pane">
                     <div class="settings-container glass">
                         <h2>Configuración Avanzada del Hardware y Red</h2>
-                        <p>Ajusta el rendimiento del cluster. Estos valores se guardan en <code>cluster.conf</code> y se aplicarán al reiniciar el servidor maestro.</p>
+                        <p>Ajusta el rendimiento del cluster. Estos valores se guardan en <code>cluster.conf</code> y sincronizan automáticamente <code>opencode.json</code>.</p>
                         
                         <div class="settings-grid">
                             <div class="settings-col">
-                                <h3>Inferencia y CPU</h3>
+                                <h3>Inferencia y Memoria</h3>
                                 
                                 <div class="form-group">
                                     <label for="input-threads">Hilos de CPU (THREADS):</label>
@@ -546,24 +806,40 @@
 
                                 <div class="form-group">
                                     <label for="input-ctx-size">Tamaño de Contexto (CTX_SIZE):</label>
-                                    <input type="number" id="input-ctx-size" min="512" max="32768" step="512" value="4096">
+                                    <input type="number" id="input-ctx-size" min="512" max="131072" step="512" value="4096">
                                     <small>Tamaño máximo de historial + prompt en tokens.</small>
                                 </div>
 
                                 <div class="form-group">
                                     <label for="input-batch-size">Tamaño de Lote (BATCH_SIZE):</label>
-                                    <input type="number" id="input-batch-size" min="8" max="2048" step="8" value="512">
+                                    <input type="number" id="input-batch-size" min="8" max="4096" step="8" value="512">
                                     <small>Tamaño del procesamiento de tokens por paso.</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="input-ngl">Capas Offload GPU/RPC (NGL):</label>
+                                    <input type="text" id="input-ngl" value="auto" placeholder="auto, all o número (ej: 99)">
+                                    <small>Capas distribuidas hacia nodos RPC / GPU (<code>auto</code> recomendado).</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="input-kv-cache">Cuantización KV Cache (KV_CACHE_TYPE):</label>
+                                    <select id="input-kv-cache" class="custom-select">
+                                        <option value="f16">f16 (Precisión estándar)</option>
+                                        <option value="q8_0">q8_0 (Ahorra ~45% RAM de contexto)</option>
+                                        <option value="q4_0">q4_0 (Ahorra ~70% RAM de contexto)</option>
+                                    </select>
+                                    <small>Reduce el consumo de memoria RAM en contextos largos.</small>
                                 </div>
                             </div>
 
                             <div class="settings-col">
-                                <h3>Red y Puertos</h3>
+                                <h3>Red y Nodos RPC</h3>
 
                                 <div class="form-group">
                                     <label for="input-llama-port">Puerto del Maestro (LLAMA_PORT):</label>
                                     <input type="number" id="input-llama-port" min="1024" max="65535" value="8080">
-                                    <small>Puerto HTTP expuesto para la API del Maestro.</small>
+                                    <small>Puerto HTTP expuesto para la API OpenAI del Maestro.</small>
                                 </div>
 
                                 <div class="form-group">
@@ -574,8 +850,29 @@
 
                                 <div class="form-group">
                                     <label for="input-subnet">Subred Forzada (CLUSTER_SUBNET):</label>
-                                    <input type="text" id="input-subnet" placeholder="Auto-detectada (ej: 192.168.0)">
-                                    <small>Deja en blanco para auto-detectar según la IP local.</small>
+                                    <input type="text" id="input-subnet" placeholder="Auto-detectada (ej: 192.168.1)">
+                                    <small>Deja en blanco para auto-detectar según la IP Ethernet local.</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="input-custom-nodes">Nodos RPC Manuales (CUSTOM_NODES):</label>
+                                    <input type="text" id="input-custom-nodes" placeholder="Ej: 192.168.1.50,10.0.0.12:50052">
+                                    <small>IPs adicionales separadas por coma (para nodos fuera de la subred).</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="input-excluded-nodes">Nodos RPC Excluidos (EXCLUDED_NODES):</label>
+                                    <input type="text" id="input-excluded-nodes" placeholder="Ej: 192.168.1.25">
+                                    <small>IPs que deseas ignorar temporalmente durante el escaneo.</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="input-rpc-cache">Caché Local de Tensores en Workers (RPC_CACHE):</label>
+                                    <select id="input-rpc-cache" class="custom-select">
+                                        <option value="true">Activado (-c) — Carga rápida en red</option>
+                                        <option value="false">Desactivado</option>
+                                    </select>
+                                    <small>Cachea pesos en disco del worker para no retransmitirlos cada vez.</small>
                                 </div>
                             </div>
                         </div>
@@ -608,10 +905,17 @@
                     <i class="fa-solid fa-memory"></i>
                     <span>Tu sistema tiene <strong id="modal-ram-info">--</strong> de RAM disponible</span>
                 </div>
+                <div class="custom-download-bar">
+                    <input type="url" id="input-custom-model-url" class="custom-input" placeholder="Pega una URL directa .gguf de Hugging Face (https://huggingface.co/.../resolve/main/modelo.gguf)">
+                    <button id="btn-download-custom-url" class="btn btn-primary btn-sm">
+                        <i class="fa-solid fa-download"></i> Descargar URL
+                    </button>
+                </div>
                 <div class="models-filter-bar">
                     <button class="filter-btn active" data-filter="all">Todos</button>
+                    <button class="filter-btn" data-filter="downloaded"><i class="fa-solid fa-hard-drive"></i> Mis Descargados</button>
                     <button class="filter-btn" data-filter="coding"><i class="fa-solid fa-code"></i> Coding</button>
-                    <button class="filter-btn" data-filter="lightweight"><i class="fa-solid fa-feather"></i> Ligeros</button>
+                    <button class="filter-btn" data-filter="lightweight"><i class="fa-solid fa-feather"></i> Ligeros / Termux</button>
                     <button class="filter-btn" data-filter="premium"><i class="fa-solid fa-gem"></i> Premium</button>
                 </div>
                 <div id="models-catalog-list" class="models-catalog-grid">

@@ -49,6 +49,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const chatMessagesContainer = document.getElementById("chat-messages-container");
     const chatInputTextarea = document.getElementById("chat-input-textarea");
     const btnSendMessage = document.getElementById("btn-send-message");
+    const btnStopGeneration = document.getElementById("btn-stop-generation");
     const btnClearChat = document.getElementById("btn-clear-chat");
     const chatModelIndicator = document.getElementById("chat-model-indicator");
     const selectPersona = document.getElementById("select-persona");
@@ -58,6 +59,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const valMaxTokens = document.getElementById("val-max-tokens");
     const textareaSystemPrompt = document.getElementById("textarea-system-prompt");
     const paramsApiStatusInfo = document.getElementById("params-api-status-info");
+    let currentChatAbortController = null;
     
     // Benchmark
     const benchmarkPrompt = document.getElementById("benchmark-prompt");
@@ -81,9 +83,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const inputThreads = document.getElementById("input-threads");
     const inputCtxSize = document.getElementById("input-ctx-size");
     const inputBatchSize = document.getElementById("input-batch-size");
+    const inputNgl = document.getElementById("input-ngl");
+    const inputKvCache = document.getElementById("input-kv-cache");
     const inputLlamaPort = document.getElementById("input-llama-port");
     const inputRpcPort = document.getElementById("input-rpc-port");
     const inputSubnet = document.getElementById("input-subnet");
+    const inputCustomNodes = document.getElementById("input-custom-nodes");
+    const inputExcludedNodes = document.getElementById("input-excluded-nodes");
+    const inputRpcCache = document.getElementById("input-rpc-cache");
     const btnSaveSettings = document.getElementById("btn-save-settings");
     const settingsStatusMsg = document.getElementById("settings-status-msg");
 
@@ -109,6 +116,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const modelsCatalogList = document.getElementById("models-catalog-list");
     const downloadActiveIndicator = document.getElementById("download-active-indicator");
     const downloadActiveText = document.getElementById("download-active-text");
+    const inputCustomModelUrl = document.getElementById("input-custom-model-url");
+    const btnDownloadCustomUrl = document.getElementById("btn-download-custom-url");
     const filterBtns = document.querySelectorAll(".filter-btn");
     let currentCatalog = [];
     let currentFilter = "all";
@@ -125,6 +134,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const personas = {
         assistant: "Eres un asistente de inteligencia artificial útil, inteligente y amigable. Responde siempre de forma clara, precisa y en español, a menos que se te indique lo contrario.",
         coder: "Eres un programador experto en desarrollo de software. Tu objetivo es proporcionar explicaciones técnicas detalladas y soluciones de código limpias, eficientes y seguras. Comenta los aspectos críticos del código.",
+        hermes: "Eres Hermes, un agente autónomo local de razonamiento profundo y orquestación técnica. Analizas los problemas paso a paso (<thought>), estructuras planes accionables, generas código modular listo para producción y utilizas esquemas JSON o herramientas cuando el usuario lo requiere.",
         translator: "Eres un traductor profesional experto. Traduce cualquier texto que te envíe el usuario. Si está en inglés, tradúcelo al español de forma natural. Si está en español, tradúcelo al inglés. No añadas explicaciones ni introducciones, solo la traducción limpia.",
         writer: "Eres un escritor creativo experimentado, especializado en narrativa y poesía. Crea respuestas ricas literariamente, descriptivas y emotivas. Usa un lenguaje evocador.",
         concise: "Eres un asistente analítico ultra preciso. Tu objetivo es responder en la menor cantidad de palabras posible, usando listas de viñetas si es necesario. Ve directo al grano sin introducciones ni saludos."
@@ -463,14 +473,21 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function renderCatalogFiltered() {
-        const filtered = currentFilter === "all"
-            ? currentCatalog
-            : currentCatalog.filter(m => m.tags && m.tags.includes(currentFilter));
+        let filtered = currentCatalog;
+        if (currentFilter === "downloaded") {
+            filtered = currentCatalog.filter(m => m.downloaded);
+        } else if (currentFilter !== "all") {
+            filtered = currentCatalog.filter(m => m.tags && m.tags.includes(currentFilter));
+        }
         renderCatalog(filtered);
     }
 
     function renderCatalog(catalog) {
         modelsCatalogList.innerHTML = "";
+        if (catalog.length === 0) {
+            modelsCatalogList.innerHTML = '<p style="color:var(--color-text-dim);padding:16px;">No hay modelos en esta categoría.</p>';
+            return;
+        }
         catalog.forEach(model => {
             const card = document.createElement("div");
             card.className = "model-card" + (model.recommended ? " recommended" : "") + (model.downloaded ? " downloaded" : "");
@@ -497,8 +514,20 @@ document.addEventListener("DOMContentLoaded", () => {
                     ${!model.downloaded ?
                         `<button class="btn btn-primary btn-sm download-btn" data-url="${model.url}" data-name="${model.filename}" ${!model.recommended ? 'title="Tu sistema no cumple con la RAM mínima"' : ''}>
                             <i class="fa-solid fa-cloud-arrow-down"></i> Descargar
-                        </button>` :
-                        `<button class="btn btn-danger btn-sm delete-model-btn" data-name="${model.filename}">
+                        </button>
+                        <div class="model-download-progress hidden" id="dl-box-${model.filename}">
+                            <div class="progress-bar-bg">
+                                <div class="progress-bar-fill progress-fill-${model.filename}" style="width: 0%"></div>
+                            </div>
+                            <span class="progress-text progress-txt-${model.filename}">0%</span>
+                            <button class="btn btn-danger btn-sm cancel-dl-btn" data-name="${model.filename}">
+                                <i class="fa-solid fa-xmark"></i> Cancelar
+                            </button>
+                        </div>` :
+                        `<button class="btn btn-primary btn-sm use-model-btn" data-name="${model.filename}" title="Seleccionar y cargar este modelo en el Maestro">
+                            <i class="fa-solid fa-play"></i> Seleccionar y Cargar
+                        </button>
+                        <button class="btn btn-danger btn-sm delete-model-btn" data-name="${model.filename}">
                             <i class="fa-solid fa-trash"></i> Eliminar
                         </button>`
                     }
@@ -512,6 +541,24 @@ document.addEventListener("DOMContentLoaded", () => {
             btn.addEventListener("click", () => startDownload(btn.dataset.url, btn.dataset.name, btn));
         });
 
+        // Bind cancel download buttons
+        modelsCatalogList.querySelectorAll(".cancel-dl-btn").forEach(btn => {
+            btn.addEventListener("click", () => cancelDownload(btn.dataset.name));
+        });
+
+        // Bind use/select model buttons
+        modelsCatalogList.querySelectorAll(".use-model-btn").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                const fname = btn.dataset.name;
+                await fetchModels();
+                selectServerModel.value = fname;
+                const selectChatModel = document.getElementById("select-chat-model");
+                if (selectChatModel) selectChatModel.value = fname;
+                modalModels.classList.add("hidden");
+                btnStartServer.click();
+            });
+        });
+
         // Bind delete buttons
         modelsCatalogList.querySelectorAll(".delete-model-btn").forEach(btn => {
             btn.addEventListener("click", () => {
@@ -522,9 +569,29 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    async function cancelDownload(filename) {
+        try {
+            await fetch("/api/models/download/cancel", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: filename })
+            });
+            if (catalogPollInterval) {
+                clearInterval(catalogPollInterval);
+                catalogPollInterval = null;
+            }
+            downloadActiveIndicator.classList.add("hidden");
+            fetchCatalog();
+        } catch (err) {
+            console.error("Cancel download error:", err);
+        }
+    }
+
     async function startDownload(url, filename, btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Iniciando...';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Iniciando...';
+        }
         try {
             const res = await fetch("/api/models/download", {
                 method: "POST",
@@ -533,21 +600,42 @@ document.addEventListener("DOMContentLoaded", () => {
             });
             const data = await res.json();
             if (data.success) {
+                if (btn) btn.classList.add("hidden");
+                const dlBox = document.getElementById(`dl-box-${filename}`);
+                if (dlBox) dlBox.classList.remove("hidden");
                 // Show active indicator
                 downloadActiveIndicator.classList.remove("hidden");
                 downloadActiveText.textContent = `Descargando ${filename}...`;
                 // Start polling progress
                 startDownloadPoll(filename);
             } else {
-                btn.disabled = false;
-                btn.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> Descargar`;
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> Descargar`;
+                }
                 alert(data.error);
             }
         } catch (err) {
-            btn.disabled = false;
-            btn.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> Descargar`;
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> Descargar`;
+            }
             console.error("Download error:", err);
         }
+    }
+
+    if (btnDownloadCustomUrl) {
+        btnDownloadCustomUrl.addEventListener("click", () => {
+            const url = inputCustomModelUrl.value.trim();
+            if (!url || !url.toLowerCase().includes(".gguf")) {
+                alert("Ingresa una URL directa válida que apunte a un archivo .gguf");
+                return;
+            }
+            let filename = url.split("/").pop().split("?")[0];
+            if (!filename.endsWith(".gguf")) filename += ".gguf";
+            inputCustomModelUrl.value = "";
+            startDownload(url, filename, btnDownloadCustomUrl);
+        });
     }
 
     function startDownloadPoll(filename) {
@@ -563,19 +651,33 @@ document.addEventListener("DOMContentLoaded", () => {
                     clearInterval(catalogPollInterval);
                     catalogPollInterval = null;
                     downloadActiveIndicator.classList.add("hidden");
+                    if (btnDownloadCustomUrl) {
+                        btnDownloadCustomUrl.disabled = false;
+                        btnDownloadCustomUrl.classList.remove("hidden");
+                        btnDownloadCustomUrl.innerHTML = `<i class="fa-solid fa-download"></i> Descargar URL`;
+                    }
                     fetchCatalog();
                     fetchModels();
-                } else if (dl.status === "error") {
+                } else if (dl.status === "error" || dl.status === "cancelled") {
                     clearInterval(catalogPollInterval);
                     catalogPollInterval = null;
                     downloadActiveIndicator.classList.add("hidden");
-                    alert(`Error al descargar: ${dl.error}`);
+                    if (btnDownloadCustomUrl) {
+                        btnDownloadCustomUrl.disabled = false;
+                        btnDownloadCustomUrl.classList.remove("hidden");
+                        btnDownloadCustomUrl.innerHTML = `<i class="fa-solid fa-download"></i> Descargar URL`;
+                    }
+                    if (dl.status === "error") {
+                        alert(`Error al descargar: ${dl.error}`);
+                    }
                     fetchCatalog();
                 } else {
                     downloadActiveText.textContent = `${filename} - ${dl.progress}% (${dl.speed})`;
                     // Update progress bar in card if visible
                     const progressFill = modelsCatalogList.querySelector(`.progress-fill-${CSS.escape(filename)}`);
                     if (progressFill) progressFill.style.width = dl.progress + "%";
+                    const progressTxt = modelsCatalogList.querySelector(`.progress-txt-${CSS.escape(filename)}`);
+                    if (progressTxt) progressTxt.textContent = `${dl.progress}% (${dl.speed})`;
                 }
             } catch (err) {
                 console.error("Poll error:", err);
@@ -743,11 +845,17 @@ document.addEventListener("DOMContentLoaded", () => {
             state.isWorkerRunning = data.rpc_server_running;
             state.activeModel = data.active_model;
             state.nodes = data.active_workers || [];
+            state.nodesDetail = data.nodes_detail || [];
             
             // Update UI elements
             infoLocalIp.textContent = state.localIp;
             infoApiPort.textContent = state.llamaPort;
             infoSubnet.textContent = `Rango detectado: ${state.subnet}.1 a .254`;
+            const nativeWebUiLink = document.getElementById("link-native-webui");
+            if (nativeWebUiLink) {
+                const hostForLink = window.location.hostname || "127.0.0.1";
+                nativeWebUiLink.href = `http://${hostForLink}:${state.llamaPort}`;
+            }
             
             // Maestro status
             if (data.llama_server_running) {
@@ -756,10 +864,12 @@ document.addEventListener("DOMContentLoaded", () => {
                     maestroText.className = "status-text text-online";
                     maestroText.textContent = "Activo";
                     
-                    // Enable chat inputs
-                    chatInputTextarea.disabled = false;
-                    btnSendMessage.disabled = false;
-                    chatInputTextarea.placeholder = "Escribe tu mensaje aquí... (Ctrl+Enter para enviar)";
+                    // Enable chat inputs if not actively generating
+                    if (!currentChatAbortController) {
+                        chatInputTextarea.disabled = false;
+                        btnSendMessage.disabled = false;
+                    }
+                    chatInputTextarea.placeholder = "Escribe tu mensaje aquí... (Enter para enviar)";
                     chatModelIndicator.className = "model-indicator-tag active";
                     chatModelIndicator.textContent = state.activeModel || "Conectado";
                     
@@ -856,6 +966,11 @@ document.addEventListener("DOMContentLoaded", () => {
             if (document.activeElement !== inputLlamaPort) inputLlamaPort.value = data.config.LLAMA_PORT;
             if (document.activeElement !== inputRpcPort) inputRpcPort.value = data.config.RPC_PORT;
             if (document.activeElement !== inputSubnet) inputSubnet.value = data.config.CLUSTER_SUBNET;
+            if (inputNgl && document.activeElement !== inputNgl) inputNgl.value = data.config.NGL || "auto";
+            if (inputKvCache && document.activeElement !== inputKvCache) inputKvCache.value = data.config.KV_CACHE_TYPE || "f16";
+            if (inputCustomNodes && document.activeElement !== inputCustomNodes) inputCustomNodes.value = data.config.CUSTOM_NODES || "";
+            if (inputExcludedNodes && document.activeElement !== inputExcludedNodes) inputExcludedNodes.value = data.config.EXCLUDED_NODES || "";
+            if (inputRpcCache) inputRpcCache.checked = String(data.config.RPC_CACHE || "true").toLowerCase() === "true";
             
         } catch (err) {
             console.error("Error updates status:", err);
@@ -872,11 +987,18 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!res.ok) throw new Error();
             const data = await res.json();
             state.models = data.models;
+            const selectToolsModel = document.getElementById("select-tools-model");
+            const selectChatModel = document.getElementById("select-chat-model");
+            const prevSelected = selectServerModel.value || state.activeModel || "";
             
-            // Populate models select dropdown
+            // Populate models select dropdowns
             selectServerModel.innerHTML = "";
+            if (selectToolsModel) selectToolsModel.innerHTML = "";
+            if (selectChatModel) selectChatModel.innerHTML = "";
             if (state.models.length === 0) {
                 selectServerModel.innerHTML = `<option value="">No hay modelos en models/</option>`;
+                if (selectToolsModel) selectToolsModel.innerHTML = `<option value="">Sin modelos en models/</option>`;
+                if (selectChatModel) selectChatModel.innerHTML = `<option value="">Sin modelos descargados</option>`;
                 return;
             }
             
@@ -885,10 +1007,39 @@ document.addEventListener("DOMContentLoaded", () => {
                 opt.value = model.name;
                 opt.textContent = `${model.name} (${model.size_human})`;
                 selectServerModel.appendChild(opt);
+                if (selectToolsModel) selectToolsModel.appendChild(opt.cloneNode(true));
+                if (selectChatModel) selectChatModel.appendChild(opt.cloneNode(true));
             });
+
+            if (prevSelected && state.models.some(m => m.name === prevSelected)) {
+                selectServerModel.value = prevSelected;
+                if (selectToolsModel) selectToolsModel.value = prevSelected;
+                if (selectChatModel) selectChatModel.value = prevSelected;
+            }
         } catch (err) {
             console.error("Error fetching models:", err);
         }
+    }
+
+    const selectChatModelEl = document.getElementById("select-chat-model");
+    const btnChatLoadModelEl = document.getElementById("btn-chat-load-model");
+    if (selectChatModelEl) {
+        selectChatModelEl.addEventListener("change", () => {
+            selectServerModel.value = selectChatModelEl.value;
+        });
+    }
+    if (selectServerModel) {
+        selectServerModel.addEventListener("change", () => {
+            if (selectChatModelEl) selectChatModelEl.value = selectServerModel.value;
+        });
+    }
+    if (btnChatLoadModelEl) {
+        btnChatLoadModelEl.addEventListener("click", () => {
+            if (selectChatModelEl && selectChatModelEl.value) {
+                selectServerModel.value = selectChatModelEl.value;
+            }
+            btnStartServer.click();
+        });
     }
 
     // Scan Nodes
@@ -899,7 +1050,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const res = await fetch("/api/nodes");
             if (res.ok) {
                 const data = await res.json();
-                state.nodes = data.nodes;
+                state.nodes = data.nodes || [];
+                state.nodesDetail = data.nodes_detail || [];
                 renderNodesList();
             }
         } catch (err) {
@@ -913,23 +1065,28 @@ document.addEventListener("DOMContentLoaded", () => {
     // Render Nodes List
     function renderNodesList() {
         nodesListUl.innerHTML = "";
-        if (state.nodes.length === 0) {
+        const details = (state.nodesDetail && state.nodesDetail.length > 0)
+            ? state.nodesDetail
+            : state.nodes.map(ip => ({ ip, latency_ms: null, is_local: ip === state.localIp, is_custom: false }));
+
+        if (details.length === 0) {
             nodesListUl.innerHTML = `<li class="empty-list">No se han detectado nodos.</li>`;
             return;
         }
         
-        state.nodes.forEach(ip => {
+        details.forEach(node => {
             const li = document.createElement("li");
             
             const ipSpan = document.createElement("span");
             ipSpan.className = "node-ip";
-            // Highlight local node
-            const isLocal = ip === state.localIp;
-            ipSpan.innerHTML = `<i class="fa-solid fa-desktop"></i> ${ip} ${isLocal ? '<span class="node-tag-local">(Este PC)</span>' : ''}`;
+            const isLocal = node.is_local || node.ip === state.localIp;
+            const customTag = node.is_custom ? ' <span class="node-tag-custom">[manual]</span>' : '';
+            ipSpan.innerHTML = `<i class="fa-solid fa-desktop"></i> ${node.ip}${isLocal ? ' <span class="node-tag-local">(Este PC)</span>' : ''}${customTag}`;
             
             const statusSpan = document.createElement("span");
             statusSpan.className = "node-status";
-            statusSpan.innerHTML = `<i class="fa-solid fa-plug"></i> Conectado`;
+            const latStr = node.latency_ms !== null && node.latency_ms !== undefined ? ` <span class="node-latency">${node.latency_ms}ms</span>` : '';
+            statusSpan.innerHTML = `<i class="fa-solid fa-plug"></i> RPC${latStr}`;
             
             li.appendChild(ipSpan);
             li.appendChild(statusSpan);
@@ -961,7 +1118,9 @@ document.addEventListener("DOMContentLoaded", () => {
                     ctx_size: parseInt(inputCtxSize.value),
                     batch_size: parseInt(inputBatchSize.value),
                     llama_port: parseInt(inputLlamaPort.value),
-                    rpc_port: parseInt(inputRpcPort.value)
+                    rpc_port: parseInt(inputRpcPort.value),
+                    ngl: inputNgl ? inputNgl.value : "auto",
+                    kv_cache_type: inputKvCache ? inputKvCache.value : "f16"
                 })
             });
             
@@ -1049,13 +1208,18 @@ document.addEventListener("DOMContentLoaded", () => {
                     batch_size: parseInt(inputBatchSize.value),
                     llama_port: parseInt(inputLlamaPort.value),
                     rpc_port: parseInt(inputRpcPort.value),
-                    cluster_subnet: inputSubnet.value
+                    cluster_subnet: inputSubnet.value,
+                    ngl: inputNgl ? inputNgl.value.trim() : "auto",
+                    kv_cache_type: inputKvCache ? inputKvCache.value : "f16",
+                    rpc_cache: inputRpcCache ? inputRpcCache.checked : true,
+                    custom_nodes: inputCustomNodes ? inputCustomNodes.value.trim() : "",
+                    excluded_nodes: inputExcludedNodes ? inputExcludedNodes.value.trim() : ""
                 })
             });
             
             const data = await res.json();
             if (data.success) {
-                settingsStatusMsg.textContent = "✓ Configuración guardada en cluster.conf. Reinicia el maestro para aplicar.";
+                settingsStatusMsg.textContent = "✓ Configuración guardada en cluster.conf y opencode.json sincronizado.";
                 settingsStatusMsg.className = "status-msg success";
                 updateStatus();
             } else {
@@ -1073,6 +1237,10 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- PLAYGROUND CHAT PLAYGROUND ---
 
     btnClearChat.addEventListener("click", () => {
+        if (currentChatAbortController) {
+            currentChatAbortController.abort();
+            currentChatAbortController = null;
+        }
         chatMessagesContainer.innerHTML = `
             <div class="message system-msg">
                 <div class="avatar"><i class="fa-solid fa-robot"></i></div>
@@ -1082,6 +1250,202 @@ document.addEventListener("DOMContentLoaded", () => {
             </div>`;
         state.chatMessages = [];
     });
+
+    if (btnStopGeneration) {
+        btnStopGeneration.addEventListener("click", () => {
+            if (currentChatAbortController) {
+                currentChatAbortController.abort();
+                currentChatAbortController = null;
+            }
+        });
+    }
+
+    // --- CODE STUDIO & SNIPPETS STATE ---
+    let sessionSnippets = [];
+    let activeCodeContent = "# Selecciona o genera código en el Chat para visualizarlo, editarlo o copiarlo con 1 clic.\n";
+    const langExtMap = {
+        python: "py", py: "py", javascript: "js", js: "js", typescript: "ts", ts: "ts",
+        html: "html", css: "css", bash: "sh", sh: "sh", shell: "sh",
+        cpp: "cpp", c: "c", json: "json", sql: "sql", markdown: "md", md: "md"
+    };
+    const extLangMap = {
+        py: "python", js: "javascript", ts: "javascript", html: "html", css: "css",
+        sh: "bash", cpp: "cpp", c: "cpp", json: "json", sql: "sql", md: "markdown"
+    };
+
+    function copyTextWithFeedback(text, btnElement, labelAfter = "Copiado!") {
+        navigator.clipboard.writeText(text).then(() => {
+            if (!btnElement) return;
+            const orig = btnElement.innerHTML;
+            btnElement.innerHTML = `<i class="fa-solid fa-check"></i> ${labelAfter}`;
+            btnElement.classList.add("copied-ok");
+            setTimeout(() => {
+                btnElement.innerHTML = orig;
+                btnElement.classList.remove("copied-ok");
+            }, 1800);
+        });
+    }
+
+    function switchToTab(tabId) {
+        const targetBtn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+        if (targetBtn) targetBtn.click();
+    }
+
+    function openCodeInStudio(code, lang = "python", suggestedFilename = "") {
+        activeCodeContent = code;
+        const cleanLang = (lang || "python").toLowerCase().replace(/^language-/, "");
+        const ext = langExtMap[cleanLang] || "txt";
+        const filenameInput = document.getElementById("code-filename");
+        const langSelect = document.getElementById("code-lang");
+        const editorTextarea = document.getElementById("code-editor-textarea");
+        const highlightedView = document.getElementById("code-highlighted-view");
+        const statsInfo = document.getElementById("code-stats-info");
+
+        if (filenameInput) {
+            filenameInput.value = suggestedFilename || `snippet_${Date.now().toString().slice(-4)}.${ext}`;
+        }
+        if (langSelect && extLangMap[ext]) {
+            langSelect.value = extLangMap[ext];
+        }
+        if (editorTextarea) {
+            editorTextarea.value = code;
+        }
+        if (highlightedView) {
+            highlightedView.className = `hljs language-${extLangMap[ext] || "plaintext"}`;
+            highlightedView.textContent = code;
+            hljs.highlightElement(highlightedView);
+        }
+        if (statsInfo) {
+            const lines = code.split("\n").length;
+            const bytes = new Blob([code]).size;
+            statsInfo.textContent = `${lines} líneas | ${bytes} bytes`;
+        }
+        // Auto refresh live preview if HTML/JS
+        const previewPane = document.getElementById("code-preview-pane");
+        if (previewPane && !previewPane.classList.contains("hidden")) {
+            renderLivePreview();
+        }
+    }
+
+    function addSessionSnippet(code, lang) {
+        const cleanLang = (lang || "txt").toLowerCase().replace(/^language-/, "");
+        const ext = langExtMap[cleanLang] || "txt";
+        // Avoid exact duplicate of last snippet
+        if (sessionSnippets.length > 0 && sessionSnippets[0].code === code) return;
+        const idx = sessionSnippets.length + 1;
+        const item = {
+            id: `chat_${Date.now()}_${idx}`,
+            name: `chat_bloque_${idx}.${ext}`,
+            lang: cleanLang,
+            code: code,
+            lines: code.split("\n").length,
+            time: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
+        };
+        sessionSnippets.unshift(item);
+        const badge = document.getElementById("code-count-badge");
+        if (badge) badge.textContent = sessionSnippets.length;
+        renderSessionSnippets();
+        // Automatically load latest snippet in Code Studio
+        openCodeInStudio(item.code, item.lang, item.name);
+    }
+
+    function renderSessionSnippets() {
+        const listEl = document.getElementById("session-snippets-list");
+        if (!listEl) return;
+        if (sessionSnippets.length === 0) {
+            listEl.innerHTML = `<div class="empty-snippets">Los bloques de código generados en el chat aparecerán aquí automáticamente.</div>`;
+            return;
+        }
+        listEl.innerHTML = "";
+        sessionSnippets.forEach(item => {
+            const row = document.createElement("div");
+            row.className = "snippet-item";
+            row.innerHTML = `
+                <div class="snippet-main">
+                    <span class="snippet-name"><i class="fa-solid fa-code"></i> ${item.name}</span>
+                    <span class="snippet-meta">${item.lines} lín • ${item.time}</span>
+                </div>
+                <div class="snippet-item-actions">
+                    <button class="btn-icon snippet-copy-btn" title="Copiar rápido"><i class="fa-solid fa-copy"></i></button>
+                </div>
+            `;
+            row.querySelector(".snippet-main").addEventListener("click", () => {
+                openCodeInStudio(item.code, item.lang, item.name);
+            });
+            row.querySelector(".snippet-copy-btn").addEventListener("click", (e) => {
+                e.stopPropagation();
+                copyTextWithFeedback(item.code, e.currentTarget, "");
+            });
+            listEl.appendChild(row);
+        });
+    }
+
+    // Decorate <pre><code> inside a chat message with 1-click Copy, Open in Studio & Save
+    function decorateCodeBlocks(containerNode, finalizeExtract = false) {
+        containerNode.querySelectorAll("pre code").forEach((block, i) => {
+            hljs.highlightElement(block);
+            const pre = block.parentElement;
+            if (!pre || pre.parentElement.classList.contains("chat-code-wrapper")) return;
+
+            const classList = Array.from(block.classList);
+            const langClass = classList.find(c => c.startsWith("language-")) || "language-plaintext";
+            const lang = langClass.replace("language-", "") || "code";
+            const rawCode = block.textContent;
+            const lineCount = rawCode.split("\n").length;
+
+            const wrapper = document.createElement("div");
+            wrapper.className = "chat-code-wrapper";
+
+            const header = document.createElement("div");
+            header.className = "chat-code-header";
+            header.innerHTML = `
+                <span class="chat-code-lang"><i class="fa-solid fa-terminal"></i> ${lang.toUpperCase()} <small>(${lineCount} líneas)</small></span>
+                <div class="chat-code-btns">
+                    <button type="button" class="btn-code-action act-copy" title="Copiar código con 1 clic">
+                        <i class="fa-solid fa-copy"></i> Copiar
+                    </button>
+                    <button type="button" class="btn-code-action act-studio" title="Abrir en Code Studio para editar o previsualizar">
+                        <i class="fa-solid fa-up-right-from-square"></i> Abrir en Studio
+                    </button>
+                    <button type="button" class="btn-code-action act-save" title="Guardar directamente en workspace_code/">
+                        <i class="fa-solid fa-floppy-disk"></i> Guardar
+                    </button>
+                </div>
+            `;
+
+            header.querySelector(".act-copy").addEventListener("click", (e) => {
+                copyTextWithFeedback(block.textContent, e.currentTarget, "Copiado");
+            });
+            header.querySelector(".act-studio").addEventListener("click", () => {
+                const ext = langExtMap[lang.toLowerCase()] || "txt";
+                openCodeInStudio(block.textContent, lang, `codigo_chat_${i + 1}.${ext}`);
+                switchToTab("tab-code");
+            });
+            header.querySelector(".act-save").addEventListener("click", async (e) => {
+                const btn = e.currentTarget;
+                const ext = langExtMap[lang.toLowerCase()] || "txt";
+                const fname = `chat_${Date.now().toString().slice(-5)}.${ext}`;
+                const res = await fetch("/api/snippets/save", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ filename: fname, content: block.textContent })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    btn.innerHTML = `<i class="fa-solid fa-check"></i> ${data.filename}`;
+                    fetchSavedSnippets();
+                }
+            });
+
+            pre.parentNode.insertBefore(wrapper, pre);
+            wrapper.appendChild(header);
+            wrapper.appendChild(pre);
+
+            if (finalizeExtract && rawCode.trim().length > 0) {
+                addSessionSnippet(rawCode, lang);
+            }
+        });
+    }
 
     // Helper to append message to Chat UI
     function appendMessage(role, text) {
@@ -1099,10 +1463,7 @@ document.addEventListener("DOMContentLoaded", () => {
             contentDiv.textContent = text;
         } else {
             contentDiv.innerHTML = marked.parse(text);
-            // Highlight code blocks
-            contentDiv.querySelectorAll("pre code").forEach(block => {
-                hljs.highlightElement(block);
-            });
+            decorateCodeBlocks(contentDiv, false);
         }
         
         msgDiv.appendChild(avatar);
@@ -1115,45 +1476,55 @@ document.addEventListener("DOMContentLoaded", () => {
         return contentDiv;
     }
 
-    // Send chat message (SSE stream directly to llama-server)
+    // Send chat message via backend SSE proxy (/api/chat) with real-time token speed validation
     async function handleChatSend() {
         const prompt = chatInputTextarea.value.trim();
         if (!prompt) return;
         
-        // Clear textarea
         chatInputTextarea.value = "";
-        
-        // Append user prompt to UI and local history
         appendMessage("user", prompt);
         state.chatMessages.push({ role: "user", content: prompt });
         
-        // Prepare API call
         chatInputTextarea.disabled = true;
         btnSendMessage.disabled = true;
+        btnSendMessage.classList.add("hidden");
+        if (btnStopGeneration) btnStopGeneration.classList.remove("hidden");
         
-        // Append placeholder assistant response
         const assistantContentNode = appendMessage("assistant", "...");
-        
-        // Connect to llama-server OpenAI endpoint
-        const targetUrl = `http://${state.localIp}:${state.llamaPort}/v1/chat/completions`;
-        
-        // We prepend the system prompt if present
+        const bodyContainer = document.createElement("div");
+        bodyContainer.className = "msg-markdown-body";
+        bodyContainer.textContent = "Procesando prompt...";
+        const metricsBar = document.createElement("div");
+        metricsBar.className = "msg-metrics-bar";
+        metricsBar.innerHTML = `<span><i class="fa-solid fa-spinner fa-spin"></i> Midiendo velocidad de tokens...</span>`;
+        assistantContentNode.innerHTML = "";
+        assistantContentNode.appendChild(bodyContainer);
+        assistantContentNode.appendChild(metricsBar);
+
+        const liveBadge = document.getElementById("chat-live-speed-badge");
+        const liveTpsVal = document.getElementById("chat-live-tps-val");
+        if (liveBadge) liveBadge.classList.remove("hidden");
+
         const messages = [];
         const systemPrompt = textareaSystemPrompt.value.trim();
         if (systemPrompt) {
             messages.push({ role: "system", content: systemPrompt });
         }
-        
-        // Add chat history (up to last 10 messages for memory context efficiency)
         const historySlice = state.chatMessages.slice(-10);
         messages.push(...historySlice);
         
+        currentChatAbortController = new AbortController();
+        let assistantResponseText = "";
+        const reqStartMs = performance.now();
+        let firstTokenMs = null;
+        let chunkTokenCount = 0;
+        let serverTimings = null;
+        
         try {
-            const response = await fetch(targetUrl, {
+            const response = await fetch("/api/chat", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
+                headers: { "Content-Type": "application/json" },
+                signal: currentChatAbortController.signal,
                 body: JSON.stringify({
                     messages: messages,
                     temperature: parseFloat(rangeTemperature.value),
@@ -1166,9 +1537,7 @@ document.addEventListener("DOMContentLoaded", () => {
             
             const reader = response.body.getReader();
             const decoder = new TextDecoder("utf-8");
-            
-            let assistantResponseText = "";
-            assistantContentNode.textContent = ""; // Clear loader
+            bodyContainer.textContent = "";
             
             let done = false;
             while (!done) {
@@ -1176,7 +1545,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 done = readerDone;
                 if (value) {
                     const chunk = decoder.decode(value, { stream: !done });
-                    // Parse Event-Stream
                     const lines = chunk.split("\n");
                     for (let line of lines) {
                         line = line.trim();
@@ -1185,37 +1553,100 @@ document.addEventListener("DOMContentLoaded", () => {
                             if (dataStr === "[DONE]") break;
                             try {
                                 const parsed = JSON.parse(dataStr);
-                                const content = parsed.choices[0].delta.content || "";
+                                if (parsed.error) {
+                                    throw new Error(parsed.error);
+                                }
+                                if (parsed.timings) {
+                                    serverTimings = parsed.timings;
+                                }
+                                const content = (parsed.choices && parsed.choices[0] && parsed.choices[0].delta && parsed.choices[0].delta.content) || "";
                                 if (content) {
+                                    const nowMs = performance.now();
+                                    if (firstTokenMs === null) {
+                                        firstTokenMs = nowMs - reqStartMs;
+                                    }
+                                    chunkTokenCount += 1;
                                     assistantResponseText += content;
                                     
-                                    // Parse Markdown in real time (may flicker, but marked is fast)
-                                    assistantContentNode.innerHTML = marked.parse(assistantResponseText);
-                                    
-                                    // Highlight code blocks
-                                    assistantContentNode.querySelectorAll("pre code").forEach(block => {
-                                        hljs.highlightElement(block);
-                                    });
+                                    bodyContainer.innerHTML = marked.parse(assistantResponseText);
+                                    decorateCodeBlocks(bodyContainer, false);
+
+                                    // Compute live t/s
+                                    const genElapsedSec = Math.max(0.05, (nowMs - (reqStartMs + firstTokenMs)) / 1000);
+                                    const liveTps = serverTimings && serverTimings.predicted_per_second
+                                        ? serverTimings.predicted_per_second.toFixed(2)
+                                        : (chunkTokenCount / genElapsedSec).toFixed(2);
+                                    if (liveTpsVal) liveTpsVal.textContent = liveTps;
+                                    metricsBar.innerHTML = `
+                                        <span class="m-pill m-tps"><i class="fa-solid fa-bolt"></i> <strong>${liveTps}</strong> tokens/s</span>
+                                        <span class="m-pill"><i class="fa-solid fa-hourglass-start"></i> TTFT: <strong>${Math.round(firstTokenMs)}</strong> ms</span>
+                                        <span class="m-pill"><i class="fa-solid fa-coins"></i> <strong>${chunkTokenCount}</strong> tokens</span>
+                                    `;
                                     
                                     chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
                                 }
                             } catch (e) {
-                                // JSON partial chunks, ignore
+                                // Ignore partial JSON chunks
                             }
                         }
                     }
                 }
             }
             
-            // Save final answer to state
-            state.chatMessages.push({ role: "assistant", content: assistantResponseText });
+            // Finalize code blocks & extract to Code Studio
+            bodyContainer.innerHTML = marked.parse(assistantResponseText);
+            decorateCodeBlocks(bodyContainer, true);
+
+            const totalElapsedSec = ((performance.now() - reqStartMs) / 1000).toFixed(2);
+            const finalGenTps = serverTimings && serverTimings.predicted_per_second
+                ? serverTimings.predicted_per_second.toFixed(2)
+                : (chunkTokenCount / Math.max(0.1, (performance.now() - reqStartMs - (firstTokenMs || 0)) / 1000)).toFixed(2);
+            const finalPromptTps = serverTimings && serverTimings.prompt_per_second
+                ? serverTimings.prompt_per_second.toFixed(2)
+                : null;
+            const finalTokens = (serverTimings && serverTimings.predicted_n) || chunkTokenCount;
+            const finalTtft = serverTimings && serverTimings.prompt_ms
+                ? Math.round(serverTimings.prompt_ms)
+                : Math.round(firstTokenMs || 0);
+
+            if (liveTpsVal) liveTpsVal.textContent = finalGenTps;
+            metricsBar.innerHTML = `
+                <span class="m-pill m-tps" title="Velocidad real de generación de tokens"><i class="fa-solid fa-bolt"></i> <strong>${finalGenTps}</strong> t/s</span>
+                ${finalPromptTps ? `<span class="m-pill" title="Velocidad de lectura del prompt"><i class="fa-solid fa-rocket"></i> Prompt: <strong>${finalPromptTps}</strong> t/s</span>` : ""}
+                <span class="m-pill" title="Tiempo hasta el primer token"><i class="fa-solid fa-hourglass-start"></i> TTFT: <strong>${finalTtft}</strong> ms</span>
+                <span class="m-pill"><i class="fa-solid fa-coins"></i> <strong>${finalTokens}</strong> tokens</span>
+                <span class="m-pill"><i class="fa-solid fa-clock"></i> ${totalElapsedSec}s</span>
+                <button type="button" class="btn-copy-reply" title="Copiar respuesta completa"><i class="fa-solid fa-copy"></i> Copiar respuesta</button>
+            `;
+            const copyReplyBtn = metricsBar.querySelector(".btn-copy-reply");
+            if (copyReplyBtn) {
+                copyReplyBtn.addEventListener("click", (e) => copyTextWithFeedback(assistantResponseText, e.currentTarget, "Copiado"));
+            }
+
+            if (assistantResponseText) {
+                state.chatMessages.push({ role: "assistant", content: assistantResponseText });
+            }
             
         } catch (err) {
-            console.error(err);
-            assistantContentNode.innerHTML = `<span style="color: var(--color-danger);"><i class="fa-solid fa-circle-exclamation"></i> Error al conectar con Llama-Server: ${err.message}. Verifica que el puerto esté libre y que no haya firewalls bloqueando la comunicación.</span>`;
+            if (err.name === "AbortError") {
+                if (assistantResponseText) {
+                    assistantResponseText += "\n\n*[Generación detenida por el usuario]*";
+                    bodyContainer.innerHTML = marked.parse(assistantResponseText);
+                    decorateCodeBlocks(bodyContainer, true);
+                    state.chatMessages.push({ role: "assistant", content: assistantResponseText });
+                } else {
+                    bodyContainer.innerHTML = `<span class="text-dim"><em>Generación cancelada.</em></span>`;
+                }
+            } else {
+                console.error(err);
+                bodyContainer.innerHTML = `<span style="color: var(--color-danger);"><i class="fa-solid fa-circle-exclamation"></i> Error al conectar con Llama-Server: ${err.message}.</span>`;
+            }
         } finally {
+            currentChatAbortController = null;
             chatInputTextarea.disabled = false;
             btnSendMessage.disabled = false;
+            btnSendMessage.classList.remove("hidden");
+            if (btnStopGeneration) btnStopGeneration.classList.add("hidden");
             chatInputTextarea.focus();
         }
     }
@@ -1226,6 +1657,439 @@ document.addEventListener("DOMContentLoaded", () => {
             e.preventDefault();
             handleChatSend();
         }
+    });
+
+    const btnOpenLastCode = document.getElementById("btn-open-last-code");
+    if (btnOpenLastCode) {
+        btnOpenLastCode.addEventListener("click", () => switchToTab("tab-code"));
+    }
+
+    // --- CODE STUDIO CONTROLS ---
+    const btnViewHighlight = document.getElementById("btn-view-mode-highlight");
+    const btnViewEdit = document.getElementById("btn-view-mode-edit");
+    const codeHighlightedContainer = document.getElementById("code-highlighted-container");
+    const codeEditorTextarea = document.getElementById("code-editor-textarea");
+    const codeFilenameInput = document.getElementById("code-filename");
+    const codeLangSelect = document.getElementById("code-lang");
+
+    function setCodeEditorMode(editMode) {
+        if (!codeHighlightedContainer || !codeEditorTextarea) return;
+        if (editMode) {
+            btnViewEdit.classList.add("active");
+            btnViewHighlight.classList.remove("active");
+            codeHighlightedContainer.classList.add("hidden");
+            codeEditorTextarea.classList.remove("hidden");
+            codeEditorTextarea.value = activeCodeContent;
+            codeEditorTextarea.focus();
+        } else {
+            activeCodeContent = codeEditorTextarea.value || activeCodeContent;
+            btnViewHighlight.classList.add("active");
+            btnViewEdit.classList.remove("active");
+            codeEditorTextarea.classList.add("hidden");
+            codeHighlightedContainer.classList.remove("hidden");
+            openCodeInStudio(activeCodeContent, codeLangSelect ? codeLangSelect.value : "python", codeFilenameInput ? codeFilenameInput.value : "snippet.py");
+        }
+    }
+
+    if (btnViewHighlight) btnViewHighlight.addEventListener("click", () => setCodeEditorMode(false));
+    if (btnViewEdit) btnViewEdit.addEventListener("click", () => setCodeEditorMode(true));
+    if (codeEditorTextarea) {
+        codeEditorTextarea.addEventListener("input", () => {
+            activeCodeContent = codeEditorTextarea.value;
+            const statsInfo = document.getElementById("code-stats-info");
+            if (statsInfo) {
+                statsInfo.textContent = `${activeCodeContent.split("\n").length} líneas | ${new Blob([activeCodeContent]).size} bytes`;
+            }
+        });
+    }
+
+    const btnNewSnippet = document.getElementById("btn-new-snippet");
+    if (btnNewSnippet) {
+        btnNewSnippet.addEventListener("click", () => {
+            openCodeInStudio("", "python", `nuevo_${Date.now().toString().slice(-4)}.py`);
+            setCodeEditorMode(true);
+        });
+    }
+
+    const btnCodeCopy = document.getElementById("btn-code-copy");
+    if (btnCodeCopy) {
+        btnCodeCopy.addEventListener("click", (e) => {
+            copyTextWithFeedback(activeCodeContent, e.currentTarget, "Copiado!");
+        });
+    }
+
+    const btnCodeSave = document.getElementById("btn-code-save");
+    if (btnCodeSave) {
+        btnCodeSave.addEventListener("click", async () => {
+            const filename = (codeFilenameInput && codeFilenameInput.value.trim()) || "snippet.py";
+            btnCodeSave.disabled = true;
+            try {
+                const res = await fetch("/api/snippets/save", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ filename, content: activeCodeContent })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    const orig = btnCodeSave.innerHTML;
+                    btnCodeSave.innerHTML = `<i class="fa-solid fa-check"></i> Guardado`;
+                    setTimeout(() => { btnCodeSave.innerHTML = orig; }, 1800);
+                    fetchSavedSnippets();
+                } else {
+                    alert("Error: " + data.error);
+                }
+            } finally {
+                btnCodeSave.disabled = false;
+            }
+        });
+    }
+
+    const btnCodeDownload = document.getElementById("btn-code-download");
+    if (btnCodeDownload) {
+        btnCodeDownload.addEventListener("click", () => {
+            const filename = (codeFilenameInput && codeFilenameInput.value.trim()) || "snippet.txt";
+            const blob = new Blob([activeCodeContent], { type: "text/plain;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    }
+
+    function renderLivePreview() {
+        const iframe = document.getElementById("code-live-iframe");
+        if (!iframe) return;
+        const lang = codeLangSelect ? codeLangSelect.value : "html";
+        let htmlDoc = activeCodeContent;
+        if (lang === "javascript") {
+            htmlDoc = `<!DOCTYPE html><html><body style="font-family:sans-serif;background:#0f172a;color:#f8fafc;padding:16px;"><h3>Consola JS</h3><pre id="out"></pre><script>
+            const log = (...a) => { document.getElementById('out').textContent += a.join(' ') + '\\n'; };
+            console.log = log; console.error = log;
+            try { ${activeCodeContent} } catch(e) { log('Error:', e.message); }
+            <\/script></body></html>`;
+        } else if (lang === "css") {
+            htmlDoc = `<!DOCTYPE html><html><head><style>${activeCodeContent}</style></head><body><div class="preview">Vista previa CSS</div></body></html>`;
+        }
+        iframe.srcdoc = htmlDoc;
+    }
+
+    const btnCodePreviewToggle = document.getElementById("btn-code-preview-toggle");
+    if (btnCodePreviewToggle) {
+        btnCodePreviewToggle.addEventListener("click", () => {
+            const previewPane = document.getElementById("code-preview-pane");
+            if (!previewPane) return;
+            previewPane.classList.toggle("hidden");
+            if (!previewPane.classList.contains("hidden")) {
+                renderLivePreview();
+            }
+        });
+    }
+
+    const btnRefreshPreview = document.getElementById("btn-refresh-preview");
+    if (btnRefreshPreview) {
+        btnRefreshPreview.addEventListener("click", renderLivePreview);
+    }
+
+    async function fetchSavedSnippets() {
+        const listEl = document.getElementById("saved-snippets-list");
+        if (!listEl) return;
+        try {
+            const res = await fetch("/api/snippets");
+            if (!res.ok) return;
+            const data = await res.json();
+            const items = data.snippets || [];
+            if (items.length === 0) {
+                listEl.innerHTML = `<div class="empty-snippets">No hay archivos guardados en workspace_code/ todavía.</div>`;
+                return;
+            }
+            listEl.innerHTML = "";
+            items.forEach(item => {
+                const row = document.createElement("div");
+                row.className = "snippet-item";
+                row.innerHTML = `
+                    <div class="snippet-main">
+                        <span class="snippet-name"><i class="fa-solid fa-file-lines"></i> ${item.name}</span>
+                        <span class="snippet-meta">${item.size} B</span>
+                    </div>
+                    <div class="snippet-item-actions">
+                        <button class="btn-icon snippet-copy-btn" title="Copiar"><i class="fa-solid fa-copy"></i></button>
+                        <button class="btn-icon snippet-del-btn" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                `;
+                row.querySelector(".snippet-main").addEventListener("click", () => {
+                    const ext = item.name.split(".").pop().toLowerCase();
+                    openCodeInStudio(item.content, extLangMap[ext] || "python", item.name);
+                });
+                row.querySelector(".snippet-copy-btn").addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    copyTextWithFeedback(item.content, e.currentTarget, "");
+                });
+                row.querySelector(".snippet-del-btn").addEventListener("click", async (e) => {
+                    e.stopPropagation();
+                    await fetch("/api/snippets/delete", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ filename: item.name })
+                    });
+                    fetchSavedSnippets();
+                });
+                listEl.appendChild(row);
+            });
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    const btnRefreshSavedSnippets = document.getElementById("btn-refresh-saved-snippets");
+    if (btnRefreshSavedSnippets) {
+        btnRefreshSavedSnippets.addEventListener("click", fetchSavedSnippets);
+    }
+
+    // --- LLAMA.CPP COMPLETE TOOLS SUITE ---
+    async function fetchToolsList() {
+        const selectTool = document.getElementById("select-universal-tool");
+        const countSpan = document.getElementById("tools-total-count");
+        if (!selectTool) return;
+        try {
+            const res = await fetch("/api/tools/list");
+            if (!res.ok) return;
+            const data = await res.json();
+            if (countSpan) countSpan.textContent = data.count || 0;
+            selectTool.innerHTML = "";
+            (data.tools || []).forEach(t => {
+                const opt = document.createElement("option");
+                opt.value = t.name;
+                opt.textContent = `${t.name} — ${t.description}`;
+                selectTool.appendChild(opt);
+            });
+        } catch (e) {
+            console.error("Error loading tools list:", e);
+        }
+    }
+
+    function getSelectedToolsModel() {
+        const sel = document.getElementById("select-tools-model");
+        return (sel && sel.value) || selectServerModel.value || "";
+    }
+
+    // 1. Native C++ Multi-Thread Benchmark (llama-bench)
+    const btnRunNativeBench = document.getElementById("btn-run-native-bench");
+    if (btnRunNativeBench) {
+        btnRunNativeBench.addEventListener("click", async () => {
+            const model = getSelectedToolsModel();
+            if (!model) return alert("Selecciona un modelo GGUF primero.");
+            const threads = document.getElementById("tool-bench-threads").value.trim() || "1,2,4";
+            const n_prompt = parseInt(document.getElementById("tool-bench-pp").value) || 128;
+            const n_gen = parseInt(document.getElementById("tool-bench-tg").value) || 64;
+            const outBox = document.getElementById("native-bench-results");
+
+            btnRunNativeBench.disabled = true;
+            btnRunNativeBench.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Midiendo C++...`;
+            outBox.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Ejecutando <code>llama-bench -m ${model} -t ${threads}</code>... Esto toma unos 10-25 segundos.`;
+
+            try {
+                const res = await fetch("/api/tools/native-bench", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ model, threads, n_prompt, n_gen })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    outBox.textContent = "Error: " + (data.error || "Fallo en llama-bench");
+                    return;
+                }
+                const rows = data.results || [];
+                if (rows.length === 0) {
+                    outBox.innerHTML = `<pre class="tool-pre-output">${data.raw_output || "Sin datos JSON"}</pre>`;
+                    return;
+                }
+                // Find best thread count for token generation (n_gen > 0)
+                let bestTg = null;
+                rows.filter(r => r.n_gen > 0).forEach(r => {
+                    if (!bestTg || r.avg_ts > bestTg.avg_ts) bestTg = r;
+                });
+
+                let html = `<table class="bench-compare-table">
+                    <thead><tr><th>Prueba</th><th>Hilos (-t)</th><th>Tokens</th><th>Velocidad (t/s)</th></tr></thead><tbody>`;
+                rows.forEach(r => {
+                    const isGen = r.n_gen > 0;
+                    const isWinner = bestTg && isGen && r.n_threads === bestTg.n_threads && r.avg_ts === bestTg.avg_ts;
+                    html += `<tr class="${isWinner ? 'winner-row' : ''}">
+                        <td>${isGen ? '⚡ Generación (tg)' : '🚀 Prompt Eval (pp)'}</td>
+                        <td><strong>-t ${r.n_threads}</strong></td>
+                        <td>${isGen ? r.n_gen : r.n_prompt}</td>
+                        <td><strong>${Number(r.avg_ts).toFixed(2)} t/s</strong> ${isWinner ? '<span class="winner-badge">ÓPTIMO</span>' : ''}</td>
+                    </tr>`;
+                });
+                html += `</tbody></table>`;
+                if (bestTg) {
+                    html += `<div class="bench-winner-Note">
+                        <span><i class="fa-solid fa-trophy"></i> Mejor velocidad de generación: <strong>${Number(bestTg.avg_ts).toFixed(2)} t/s</strong> usando <strong>${bestTg.n_threads} hilos</strong>.</span>
+                        <button type="button" id="btn-apply-best-threads" class="btn btn-sm btn-primary">Aplicar -t ${bestTg.n_threads} al Cluster</button>
+                    </div>`;
+                }
+                outBox.innerHTML = html;
+                const applyBtn = document.getElementById("btn-apply-best-threads");
+                if (applyBtn && bestTg) {
+                    applyBtn.addEventListener("click", () => {
+                        if (inputThreads) inputThreads.value = bestTg.n_threads;
+                        btnSaveSettings.click();
+                        applyBtn.innerHTML = `<i class="fa-solid fa-check"></i> Aplicado (-t ${bestTg.n_threads})`;
+                    });
+                }
+            } catch (e) {
+                outBox.textContent = "Error ejecutando llama-bench: " + e.message;
+            } finally {
+                btnRunNativeBench.disabled = false;
+                btnRunNativeBench.innerHTML = `<i class="fa-solid fa-bolt"></i> Medir C++`;
+            }
+        });
+    }
+
+    // 2. Interactive Tokenizer (llama-tokenize)
+    const btnRunTokenize = document.getElementById("btn-run-tokenize");
+    if (btnRunTokenize) {
+        btnRunTokenize.addEventListener("click", async () => {
+            const model = getSelectedToolsModel();
+            const text = document.getElementById("tool-tokenize-input").value;
+            const outBox = document.getElementById("tokenize-chips-output");
+            const badge = document.getElementById("tokenizer-stats-badge");
+            if (!model) return alert("Selecciona un modelo GGUF primero.");
+
+            btnRunTokenize.disabled = true;
+            outBox.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Tokenizando con vocabulario de ${model}...`;
+            try {
+                const res = await fetch("/api/tools/tokenize", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ model, text })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    outBox.textContent = "Error: " + data.error;
+                    return;
+                }
+                const tokens = data.tokens || [];
+                const ratio = tokens.length > 0 ? (text.length / tokens.length).toFixed(2) : 0;
+                if (badge) badge.textContent = `${tokens.length} tokens (${ratio} chars/tok)`;
+                outBox.innerHTML = tokens.map((t, idx) =>
+                    `<span class="tok-chip tok-color-${idx % 5}" title="Token ID: ${t.id}">
+                        <span class="tok-piece">${t.piece.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>
+                        <span class="tok-id">${t.id}</span>
+                    </span>`
+                ).join("");
+            } catch (e) {
+                outBox.textContent = "Error: " + e.message;
+            } finally {
+                btnRunTokenize.disabled = false;
+            }
+        });
+    }
+
+    // 3. GGUF Inspector, Fit-Params & Live Slots
+    const inspectorOutput = document.getElementById("tool-inspector-output");
+    const btnToolFitParams = document.getElementById("btn-tool-fit-params");
+    if (btnToolFitParams) {
+        btnToolFitParams.addEventListener("click", async () => {
+            const model = getSelectedToolsModel();
+            if (!model) return;
+            inspectorOutput.textContent = "Calculando parámetros óptimos con llama-fit-params...";
+            const res = await fetch("/api/tools/fit-params", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ model })
+            });
+            const data = await res.json();
+            inspectorOutput.textContent = data.success
+                ? `Argumentos recomendados por llama-fit-params:\n${data.recommended_flags}\n\n--- Log Completo ---\n${data.raw_output}`
+                : `Error: ${data.error}`;
+        });
+    }
+
+    const btnToolGgufInfo = document.getElementById("btn-tool-gguf-info");
+    if (btnToolGgufInfo) {
+        btnToolGgufInfo.addEventListener("click", async () => {
+            const model = getSelectedToolsModel();
+            if (!model) return;
+            inspectorOutput.textContent = "Inspeccionando cabeceras y tensores con llama-gguf-hash...";
+            const res = await fetch("/api/tools/gguf-info", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ model })
+            });
+            const data = await res.json();
+            inspectorOutput.textContent = data.success ? data.output : `Error: ${data.error}`;
+        });
+    }
+
+    const btnToolLiveSlots = document.getElementById("btn-tool-live-slots");
+    if (btnToolLiveSlots) {
+        btnToolLiveSlots.addEventListener("click", async () => {
+            inspectorOutput.textContent = "Consultando slots activos de llama-server (/slots)...";
+            const res = await fetch("/api/tools/slots");
+            const data = await res.json();
+            inspectorOutput.textContent = data.success
+                ? JSON.stringify(data.slots, null, 2)
+                : `Error: ${data.error}`;
+        });
+    }
+
+    // 4. Quantizer (llama-quantize)
+    const btnRunQuantize = document.getElementById("btn-run-quantize");
+    if (btnRunQuantize) {
+        btnRunQuantize.addEventListener("click", async () => {
+            const model = getSelectedToolsModel();
+            const quant_type = document.getElementById("tool-quant-type").value;
+            const outPre = document.getElementById("tool-quantize-output");
+            if (!model) return alert("Selecciona un modelo primero.");
+            btnRunQuantize.disabled = true;
+            outPre.textContent = `Cuantizando ${model} -> ${quant_type} con llama-quantize...`;
+            try {
+                const res = await fetch("/api/tools/quantize", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ model, quant_type })
+                });
+                const data = await res.json();
+                outPre.textContent = data.output || data.error;
+                if (data.success) fetchModels();
+            } finally {
+                btnRunQuantize.disabled = false;
+            }
+        });
+    }
+
+    // 5. Universal 47-Tool Runner
+    async function runUniversalTool(forceArgs = null) {
+        const tool = document.getElementById("select-universal-tool").value;
+        const argsInput = document.getElementById("input-universal-args");
+        const args = forceArgs !== null ? forceArgs : argsInput.value;
+        const outPre = document.getElementById("universal-tool-output");
+        if (!tool) return;
+        outPre.textContent = `$ ./bin/${tool} ${args}\nEjecutando...`;
+        try {
+            const res = await fetch("/api/tools/run", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ tool, args })
+            });
+            const data = await res.json();
+            outPre.textContent = `$ ./bin/${tool} ${args}\n\n${data.output || data.error || "(Sin salida)"}`;
+        } catch (e) {
+            outPre.textContent = "Error: " + e.message;
+        }
+    }
+
+    const btnUniversalRun = document.getElementById("btn-universal-run");
+    const btnUniversalHelp = document.getElementById("btn-universal-help");
+    if (btnUniversalRun) btnUniversalRun.addEventListener("click", () => runUniversalTool(null));
+    if (btnUniversalHelp) btnUniversalHelp.addEventListener("click", () => {
+        document.getElementById("input-universal-args").value = "--help";
+        runUniversalTool("--help");
     });
 
     // --- BENCHMARK PANEL ---
@@ -1239,7 +2103,6 @@ document.addEventListener("DOMContentLoaded", () => {
         btnRunBenchmark.disabled = true;
         btnRunBenchmark.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Ejecutando...`;
         
-        // Reset gauges
         benchValTps.textContent = "...";
         benchValFirstToken.textContent = "...";
         benchValTotalTime.textContent = "...";
@@ -1260,13 +2123,11 @@ document.addEventListener("DOMContentLoaded", () => {
             
             const data = await res.json();
             if (data.success) {
-                // Update stats
                 benchValTps.textContent = data.tokens_per_sec;
                 benchValFirstToken.textContent = data.prompt_eval_ms;
                 benchValTotalTime.textContent = (data.total_ms / 1000).toFixed(2);
                 benchValCount.textContent = data.tokens_count;
                 
-                // Show preview
                 benchmarkOutputPreviewText.textContent = data.response_preview;
                 benchmarkOutputPreviewText.className = "output-preview-box completed";
             } else {
@@ -1290,7 +2151,6 @@ document.addEventListener("DOMContentLoaded", () => {
             if (res.ok) {
                 const data = await res.json();
                 terminalPre.textContent = data.content || `[Consola vacía. No hay eventos registrados en ${type}.log]`;
-                // Keep scroll at bottom of terminal
                 terminalPre.parentElement.scrollTop = terminalPre.parentElement.scrollHeight;
             }
         } catch (err) {
@@ -1311,7 +2171,6 @@ document.addEventListener("DOMContentLoaded", () => {
             .catch(err => console.error(err));
     });
 
-    // Run diag command
     btnRunDiag.addEventListener("click", async () => {
         btnRunDiag.disabled = true;
         btnRunDiag.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Ejecutando Diagnóstico...`;
@@ -1335,4 +2194,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Start
     init();
+    fetchSavedSnippets();
+    fetchToolsList();
 });

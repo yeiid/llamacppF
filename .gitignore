@@ -18,9 +18,11 @@ cluster.conf
 .DS_Store
 Thumbs.db
 
-# IDE
+# IDE & Python cache
 .vscode/
 .idea/
+__pycache__/
+*.py[cod]
 *.swp
 *.swo
 *~
