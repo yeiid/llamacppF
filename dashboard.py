@@ -1454,6 +1454,7 @@ def run(port=PORT):
     collector.start()
 
     server_address = ('', port)
+    ThreadingHTTPServer.allow_reuse_address = True
     httpd = ThreadingHTTPServer(server_address, DashboardAPIHandler)
     print("==================================================")
     print(" LLAMA.CPP CLUSTER DASHBOARD BACKEND INICIADO")
