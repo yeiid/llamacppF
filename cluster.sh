@@ -32,7 +32,7 @@ fi
 
 # --- Defaults inteligentes según plataforma (núcleos físicos reales / performance cores) ---
 RPC_PORT=50052
-LLAMA_PORT=8080
+LLAMA_PORT=${LLAMA_PORT:-8080}
 CLUSTER_SUBNET=""
 detect_optimal_threads() {
     if command -v python3 &>/dev/null && [ -f "$SCRIPT_DIR/cluster_core.py" ]; then
@@ -73,6 +73,14 @@ EXCLUDED_NODES=${EXCLUDED_NODES:-""}
 [ -f "$CONF_FILE" ] && source "$CONF_FILE"
 
 # --- Estado ---
+if [ -L "$MODEL_DIR" ] && [ ! -e "$MODEL_DIR" ]; then
+    target=$(readlink -f "$MODEL_DIR" 2>/dev/null || true)
+    if [ -n "$target" ] && mkdir -p "$target" 2>/dev/null; then
+        :
+    else
+        rm -f "$MODEL_DIR"
+    fi
+fi
 mkdir -p "$STATE_DIR" "$MODEL_DIR"
 PID_RPC="$STATE_DIR/rpc.pid"
 PID_LLAMA="$STATE_DIR/llama.pid"

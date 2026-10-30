@@ -30,6 +30,7 @@ from cluster_core import (
     query_active_model,
     format_bytes,
     sync_opencode_json,
+    ensure_dir,
 )
 
 # Configuración
@@ -53,7 +54,7 @@ def cancel_model_download(filename):
 def start_model_download(url, filename):
     """Inicia la descarga de un modelo en un hilo escribiendo a archivo .part temporal"""
     def _download():
-        os.makedirs(MODEL_DIR, exist_ok=True)
+        ensure_dir(MODEL_DIR)
         dest = os.path.join(MODEL_DIR, filename)
         temp_dest = dest + ".part"
         with _download_lock:
@@ -1446,8 +1447,8 @@ def metrics_collector_thread():
 
 
 def run(port=PORT):
-    os.makedirs(STATE_DIR, exist_ok=True)
-    os.makedirs(MODEL_DIR, exist_ok=True)
+    ensure_dir(STATE_DIR)
+    ensure_dir(MODEL_DIR)
 
     collector = threading.Thread(target=metrics_collector_thread, daemon=True)
     collector.start()

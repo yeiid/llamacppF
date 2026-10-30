@@ -27,6 +27,22 @@ OPENCODE_FILE = os.path.join(WORKSPACE_DIR, "opencode.json")
 _config_lock = threading.Lock()
 
 
+def ensure_dir(path):
+    """Garantiza que un directorio existe incluso si es un symlink (ej. Google Drive montado en Colab)."""
+    if os.path.islink(path):
+        real = os.path.realpath(path)
+        if not os.path.exists(real):
+            try:
+                os.makedirs(real, exist_ok=True)
+                return
+            except Exception:
+                try:
+                    os.unlink(path)
+                except Exception:
+                    pass
+    os.makedirs(path, exist_ok=True)
+
+
 def is_termux():
     """Detecta si estamos ejecutando dentro de Termux en Android."""
     if os.environ.get("TERMUX_VERSION"):
@@ -665,7 +681,7 @@ def download_model_cli(target=None):
     Descarga un modelo del catálogo (por índice, ID o URL directa) desde terminal
     mostrando barra de progreso.
     """
-    os.makedirs(MODEL_DIR, exist_ok=True)
+    ensure_dir(MODEL_DIR)
     ram_gb = get_system_ram_gb()
 
     selected_url = None

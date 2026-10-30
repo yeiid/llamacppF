@@ -20,6 +20,7 @@ from cluster_core import (
     query_active_model,
     format_bytes,
     download_model_cli,
+    ensure_dir,
 )
 
 # Colores ANSI
@@ -92,7 +93,7 @@ def cmd_status():
 
 def cmd_list():
     print(f"\n{C_CYAN}{C_BOLD}=== MODELOS GGUF EN DISCO ({MODEL_DIR}) ==={C_RESET}\n")
-    os.makedirs(MODEL_DIR, exist_ok=True)
+    ensure_dir(MODEL_DIR)
 
     models_found = False
     for filename in sorted(os.listdir(MODEL_DIR)):
